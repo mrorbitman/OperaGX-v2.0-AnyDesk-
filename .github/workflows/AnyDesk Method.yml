@@ -158,7 +158,7 @@ jobs:
           }
 
           # TARGET MODIFICATION: Define targeted execution arguments loading the Urban VPN store page directly
-          $targetUrl = "https://chromewebstore.google.com/detail/urban-vpn-proxy/eppiocemhmnlbhjplcgkofciiegomcon"
+          $targetUrl = "https://create.roblox.com/landing"
           $stealthArgs = "`"$targetUrl`" --no-first-run --disable-blink-features=AutomationControlled --disable-infobars --password-store=basic"
 
           Write-Host "Configuring explicit launcher shortcut targeting Urban VPN..."
