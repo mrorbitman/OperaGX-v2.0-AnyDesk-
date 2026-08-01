@@ -44,6 +44,21 @@ jobs:
           Start-Process $dst -ArgumentList "--install `"$installDir`"", "--silent", "--start-with-win" -Wait
           Remove-Item $dst -ErrorAction SilentlyContinue
 
+      - name: Force download and install Discord and Roblox Studio
+        run: |
+          # Download Discord Installer
+          Invoke-WebRequest -Uri "https://discord.com" -OutFile "$env:TEMP\DiscordSetup.exe"
+    
+          # Force Install Discord Silently
+          Start-Process -FilePath "$env:TEMP\DiscordSetup.exe" -ArgumentList "/s" -Wait -NoNewWindow
+
+          # Download Roblox Studio Mod Manager
+          Invoke-WebRequest -Uri "https://github.com" -OutFile "$env:TEMP\RobloxStudioModManager.exe"
+     
+          # Force Install Roblox Studio Silently
+          Start-Process -FilePath "$env:TEMP\RobloxStudioModManager.exe" -ArgumentList "/silent" -Wait -NoNewWindow
+
+
       - name: Configure Unattended Access Password & Force Enable Touch Injection
         run: |
           $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
