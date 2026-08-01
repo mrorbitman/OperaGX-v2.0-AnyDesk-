@@ -44,19 +44,34 @@ jobs:
           Start-Process $dst -ArgumentList "--install `"$installDir`"", "--silent", "--start-with-win" -Wait
           Remove-Item $dst -ErrorAction SilentlyContinue
 
-      - name: Force download and install Discord and Roblox Studio
-        run: |
-          # Download Discord Installer
-          Invoke-WebRequest -Uri "https://discord.com" -OutFile "$env:TEMP\DiscordSetup.exe"
+       - name: Force download and install Discord and Roblox Studio
+         run: |
+          # Force TLS 1.2/1.3 for secure downloads
+          [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+
+          # Clean up any previously failed/corrupted files
+          Remove-Item -Path "$env:TEMP\DiscordSetup.exe" -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "$env:TEMP\RobloxStudioModManager.exe" -Force -ErrorAction SilentlyContinue
+
+          # Download Discord (with redirection handling)
+          $DiscordUrl = "https://discord.com"
+          $Response = Invoke-WebRequest -Uri $DiscordUrl -MaximumRedirection 5 -OutFile "$env:TEMP\DiscordSetup.exe" -PassThru
     
+          # Verify the downloaded file is a valid executable before running
+          if ((Get-Item "$env:TEMP\DiscordSetup.exe").Length -lt 1MB) {
+              throw "Discord download failed or file is corrupted."
+          }
+
           # Force Install Discord Silently
           Start-Process -FilePath "$env:TEMP\DiscordSetup.exe" -ArgumentList "/s" -Wait -NoNewWindow
 
           # Download Roblox Studio Mod Manager
-          Invoke-WebRequest -Uri "https://github.com" -OutFile "$env:TEMP\RobloxStudioModManager.exe"
-     
+          $RobloxUrl = "https://github.com"
+          Invoke-WebRequest -Uri $RobloxUrl -MaximumRedirection 5 -OutFile "$env:TEMP\RobloxStudioModManager.exe"
+
           # Force Install Roblox Studio Silently
           Start-Process -FilePath "$env:TEMP\RobloxStudioModManager.exe" -ArgumentList "/silent" -Wait -NoNewWindow
+
 
 
       - name: Configure Unattended Access Password & Force Enable Touch Injection
