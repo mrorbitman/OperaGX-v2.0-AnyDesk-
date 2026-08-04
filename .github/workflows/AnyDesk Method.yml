@@ -13,7 +13,7 @@ defaults:
 
 jobs:
   rdp:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 360
     env:
       ANYDESK_PASS: Pass@4321
