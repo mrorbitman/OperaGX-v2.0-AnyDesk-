@@ -73,7 +73,7 @@ jobs:
       - name: Optimize Resolution for Mobile Display
         run: |
           Write-Host "Forcing resolution calibration matrix..."
-          Set-DisplayResolution -Width 1600 -Height 1200 -Force -ErrorAction SilentlyContinue
+          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
 
       - name: Download & Force Consumer Build of Opera GX
         run: |
