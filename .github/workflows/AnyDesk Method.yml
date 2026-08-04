@@ -33,7 +33,7 @@ jobs:
 
       - name: Download and Force Install AnyDesk
         run: |
-          $url = "https://download.anydesk.com/AnyDesk.exe"
+          $url = "https://anydesk.com"
           $dst = "$env:TEMP\AnyDesk.exe"
           Invoke-WebRequest -Uri $url -OutFile $dst
           
@@ -52,12 +52,15 @@ jobs:
           Remove-Item -Path "$env:TEMP\DiscordSetup.exe" -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$env:TEMP\RobloxStudioModManager.exe" -Force -ErrorAction SilentlyContinue
 
-          # Download Discord (with redirection handling)
-          $DiscordUrl = "https://discord.com"
-          $Response = Invoke-WebRequest -Uri $DiscordUrl -MaximumRedirection 5 -OutFile "$env:TEMP\DiscordSetup.exe" -PassThru
+          # Set User Agent to bypass CDN firewalls
+          $userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+          # Download Discord Stable 64-bit
+          $DiscordUrl = "https://discord.com/api/downloads/distributions/app/installers/latest?channel=stable&platform=win&arch=x64"
+          Invoke-WebRequest -Uri $DiscordUrl -UserAgent $userAgent -MaximumRedirection 5 -OutFile "$env:TEMP\DiscordSetup.exe"
     
           # Verify the downloaded file is a valid executable before running
-          if ((Get-Item "$env:TEMP\DiscordSetup.exe").Length -lt 1MB) {
+          if (-not (Test-Path "$env:TEMP\DiscordSetup.exe") -or (Get-Item "$env:TEMP\DiscordSetup.exe").Length -lt 1MB) {
               throw "Discord download failed or file is corrupted."
           }
 
@@ -65,8 +68,8 @@ jobs:
           Start-Process -FilePath "$env:TEMP\DiscordSetup.exe" -ArgumentList "/s" -Wait -NoNewWindow
 
           # Download Roblox Studio Mod Manager
-          $RobloxUrl = "https://github.com"
-          Invoke-WebRequest -Uri $RobloxUrl -MaximumRedirection 5 -OutFile "$env:TEMP\RobloxStudioModManager.exe"
+          $RobloxUrl = "https://github.com/MaximumADHD/RobloxStudioModManager/releases/latest/download/RobloxStudioModManager.exe"
+          Invoke-WebRequest -Uri $RobloxUrl -UserAgent $userAgent -MaximumRedirection 5 -OutFile "$env:TEMP\RobloxStudioModManager.exe"
 
           # Force Install Roblox Studio Silently
           Start-Process -FilePath "$env:TEMP\RobloxStudioModManager.exe" -ArgumentList "/silent" -Wait -NoNewWindow
@@ -105,7 +108,7 @@ jobs:
       - name: Download & Force Consumer Build of Opera GX
         run: |
           Write-Host "Fetching consumer-stable Opera GX Core..."
-          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
+          $url = "https://opera.com"
           $installer = "$env:TEMP\OperaGXSetup.exe"
           Invoke-WebRequest -Uri $url -OutFile $installer
           
