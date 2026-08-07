@@ -1,4 +1,4 @@
-name: AnyDesk (macOS)
+name: AnyDesk
 
 on:
   workflow_dispatch:
