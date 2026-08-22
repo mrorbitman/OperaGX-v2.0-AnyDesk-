@@ -7,50 +7,81 @@ permissions:
   contents: read
 
 jobs:
-  remote-mac:
+  mac:
     runs-on: macos-14
     timeout-minutes: 360
 
     env:
       ANYDESK_PASS: "Pass@4321"
-      RUNTIME_MINUTES: 350
+      RUNTIME_MINUTES: "350"
 
     steps:
+
+      # ==================================================
+      # CLEAN DESKTOP
+      # ==================================================
 
       - name: Clean Desktop
         shell: bash
         run: |
-          echo "Cleaning unnecessary desktop  shortcuts..."
+          set -euo pipefail
 
-          rm -f "$HOME/Desktop/Unity Hub.app"
-          rm -f "$HOME/Desktop/Firefox.app"
-          rm -f "$HOME/Desktop/Google Chrome.app"
+          echo "Cleaning desktop..."
 
-                 - name: Download AnyDesk
+          rm -f "$HOME/Desktop/Unity Hub.app" || true
+          rm -f "$HOME/Desktop/Firefox.app" || true
+          rm -f "$HOME/Desktop/Google Chrome.app" || true
+
+      # ==================================================
+      # DOWNLOAD ANYDESK
+      # ==================================================
+
+      - name: Download AnyDesk
         shell: bash
         run: |
           set -euo pipefail
 
-          COMPRESSED="$RUNNER_TEMP/AnyDesk.download"
+          DOWNLOAD="$RUNNER_TEMP/AnyDesk.download"
           DMG="$RUNNER_TEMP/AnyDesk.dmg"
 
-          echo "Downloading AnyDesk..."
+          echo "Downloading AnyDesk macOS..."
 
           curl -fL \
             --retry 3 \
             --retry-all-errors \
+            --connect-timeout 30 \
             -A "Mozilla/5.0" \
             "https://anydesk.com/en/downloads/thank-you?dv=mac_dmg" \
-            -o "$COMPRESSED"
+            -o "$DOWNLOAD"
 
-          echo "Downloaded:"
-          ls -lh "$COMPRESSED"
+          echo ""
+          echo "Downloaded file:"
+          ls -lh "$DOWNLOAD"
 
-          echo "Decompressing AnyDesk..."
+          echo ""
+          echo "Initial file type:"
+          file "$DOWNLOAD"
 
-          python3 - "$COMPRESSED" "$DMG" <<'PY'
+          # ------------------------------------------------
+          # First attempt: file may already be a DMG
+          # ------------------------------------------------
+
+          if file "$DOWNLOAD" | grep -Eqi \
+            'disk image|hfs|filesystem|Apple Partition Map|GUID Partition Table'; then
+
+            echo "Download is already a disk image."
+
+            cp "$DOWNLOAD" "$DMG"
+
+          else
+
+            echo "Download is not directly recognized as a DMG."
+            echo "Attempting zlib decompression..."
+
+            python3 - "$DOWNLOAD" "$DMG" <<'PY'
 import sys
 import zlib
+import gzip
 
 src = sys.argv[1]
 dst = sys.argv[2]
@@ -58,24 +89,87 @@ dst = sys.argv[2]
 with open(src, "rb") as f:
     data = f.read()
 
-decompressor = zlib.decompressobj()
-output = decompressor.decompress(data)
+output = None
 
-if not decompressor.eof:
-    raise RuntimeError("The AnyDesk download did not contain a complete zlib stream.")
+# Try normal zlib stream
+try:
+    obj = zlib.decompressobj()
+    result = obj.decompress(data) + obj.flush()
+
+    if result:
+        output = result
+        print("Successfully decompressed using zlib.")
+except Exception as e:
+    print("Normal zlib decompression failed:", e)
+
+# Try raw DEFLATE
+if output is None:
+    try:
+        obj = zlib.decompressobj(-zlib.MAX_WBITS)
+        result = obj.decompress(data) + obj.flush()
+
+        if result:
+            output = result
+            print("Successfully decompressed using raw DEFLATE.")
+    except Exception as e:
+        print("Raw DEFLATE decompression failed:", e)
+
+# Try gzip
+if output is None:
+    try:
+        output = gzip.decompress(data)
+        print("Successfully decompressed using gzip.")
+    except Exception as e:
+        print("Gzip decompression failed:", e)
+
+if output is None:
+    print()
+    print("ERROR: Could not decompress the AnyDesk download.")
+    print("The server response may require browser-side processing.")
+    sys.exit(1)
 
 with open(dst, "wb") as f:
     f.write(output)
 
-print(f"Decompressed {len(data):,} bytes -> {len(output):,} bytes")
+print(f"Input : {len(data):,} bytes")
+print(f"Output: {len(output):,} bytes")
 PY
 
-          echo "Checking DMG..."
+          fi
 
-          file "$DMG"
+          echo ""
+          echo "Final DMG:"
           ls -lh "$DMG"
 
-      - name: Mount AnyDesk
+          echo ""
+          echo "Final file type:"
+          file "$DMG"
+
+          # ------------------------------------------------
+          # Validate disk image before hdiutil
+          # ------------------------------------------------
+
+          if ! file "$DMG" | grep -Eqi \
+            'disk image|hfs|filesystem|Apple Partition Map|GUID Partition Table'; then
+
+            echo ""
+            echo "ERROR: The resulting file is still not recognized as a DMG."
+            echo ""
+            echo "First 64 bytes:"
+            xxd -l 64 "$DMG" || true
+            echo ""
+
+            exit 1
+          fi
+
+          echo ""
+          echo "AnyDesk DMG validation passed."
+
+      # ==================================================
+      # MOUNT DMG
+      # ==================================================
+
+      - name: Mount AnyDesk DMG
         shell: bash
         run: |
           set -euo pipefail
@@ -92,146 +186,203 @@ PY
             -readonly \
             -mountpoint "$MOUNT"
 
-          echo "Mounted successfully."
+          echo ""
+          echo "DMG mounted successfully."
+          echo ""
 
           ls -la "$MOUNT"
+
+      # ==================================================
+      # INSTALL ANYDESK
+      # ==================================================
 
       - name: Install AnyDesk
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Installing AnyDesk..."
+          MOUNT="$RUNNER_TEMP/anydesk"
 
-          if [ -d "$RUNNER_TEMP/anydesk/AnyDesk.app" ]; then
-            sudo cp -R \
-              "$RUNNER_TEMP/anydesk/AnyDesk.app" \
-              "/Applications/AnyDesk.app"
-          else
-            echo "AnyDesk.app was not found in the mounted image."
+          echo "Searching for AnyDesk.app..."
+
+          ANYDESK_APP=$(find "$MOUNT" \
+            -maxdepth 3 \
+            -type d \
+            -name "AnyDesk.app" \
+            -print -quit)
+
+          if [ -z "$ANYDESK_APP" ]; then
+            echo "ERROR: AnyDesk.app was not found."
+            echo ""
+            echo "DMG contents:"
+            find "$MOUNT" -maxdepth 3 -print
             exit 1
           fi
 
-          hdiutil detach "$RUNNER_TEMP/anydesk" || true
+          echo "Found:"
+          echo "$ANYDESK_APP"
 
-          rm -f "$RUNNER_TEMP/AnyDesk.dmg"
+          echo ""
+          echo "Installing AnyDesk..."
 
+          sudo rm -rf "/Applications/AnyDesk.app"
+
+          sudo cp -R \
+            "$ANYDESK_APP" \
+            "/Applications/AnyDesk.app"
+
+          echo ""
           echo "AnyDesk installed."
 
-      - name: Configure AnyDesk
+          ls -ld "/Applications/AnyDesk.app"
+
+      # ==================================================
+      # UNMOUNT DMG
+      # ==================================================
+
+      - name: Unmount AnyDesk DMG
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
+          MOUNT="$RUNNER_TEMP/anydesk"
 
-          if [ ! -f "$ANYDESK" ]; then
-            echo "AnyDesk executable not found."
+          echo "Unmounting DMG..."
+
+          hdiutil detach "$MOUNT" -force || true
+
+          rm -f "$RUNNER_TEMP/AnyDesk.dmg"
+          rm -f "$RUNNER_TEMP/AnyDesk.download"
+
+          echo "Cleanup complete."
+
+      # ==================================================
+      # START ANYDESK
+      # ==================================================
+
+      - name: Start AnyDesk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="/Applications/AnyDesk.app"
+
+          if [ ! -d "$APP" ]; then
+            echo "ERROR: AnyDesk.app is missing."
             exit 1
           fi
 
           echo "Starting AnyDesk..."
-          open -a "/Applications/AnyDesk.app"
 
-          sleep 8
+          open -a "$APP"
 
-          echo "Configuring unattended access..."
+          sleep 10
 
-          echo "$ANYDESK_PASS" | \
-            sudo "$ANYDESK" --set-password
+      # ==================================================
+      # CONFIGURE PASSWORD
+      # ==================================================
 
-          echo "Restarting AnyDesk..."
-
-          sudo pkill -f AnyDesk || true
-          sleep 3
-
-          open -a "/Applications/AnyDesk.app"
-
-          sleep 8
-
-      - name: Grant macOS Remote Permissions
+      - name: Configure AnyDesk Password
         shell: bash
         run: |
-          echo "Checking macOS permissions..."
+          set -euo pipefail
 
-          echo ""
-          echo "IMPORTANT:"
-          echo "macOS may require Screen Recording and Accessibility"
-          echo "permissions for AnyDesk."
-          echo ""
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          # GitHub-hosted macOS runners may not allow these
-          # permissions to be granted automatically.
-          #
-          # AnyDesk itself may therefore connect with limited
-          # interaction depending on the runner image.
+          if [ ! -x "$ANYDESK" ]; then
+            echo "ERROR: AnyDesk executable not found."
+            exit 1
+          fi
+
+          echo "Setting unattended-access password..."
+
+          printf '%s\n' "$ANYDESK_PASS" | \
+            sudo "$ANYDESK" --set-password
+
+          echo "Password configuration completed."
+
+          sleep 5
+
+      # ==================================================
+      # RESTART ANYDESK
+      # ==================================================
+
+      - name: Restart AnyDesk
+        shell: bash
+        run: |
+          echo "Restarting AnyDesk..."
+
+          pkill -f "/Applications/AnyDesk.app" || true
+
+          sleep 5
+
+          open -a "/Applications/AnyDesk.app"
+
+          sleep 10
+
+      # ==================================================
+      # GET ANYDESK ID
+      # ==================================================
 
       - name: Get AnyDesk ID
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
           ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          echo "Waiting for AnyDesk ID..."
-
           ID=""
 
-          for i in {1..15}; do
+          echo "Waiting for AnyDesk ID..."
+
+          for i in {1..20}; do
+
             ID=$("$ANYDESK" --get-id 2>/dev/null || true)
 
             if [ -n "$ID" ]; then
               break
             fi
 
+            echo "Attempt $i/20..."
             sleep 4
+
           done
 
           echo ""
           echo "===================================================="
-          echo "          ANYDESK MAC CLOUD MACHINE READY"
+          echo "          ANYDESK MACOS MACHINE READY"
           echo "===================================================="
+          echo ""
           echo " CONNECTION ID : $ID"
           echo " PASSWORD      : $ANYDESK_PASS"
+          echo ""
           echo "===================================================="
           echo ""
 
           if [ -z "$ID" ]; then
-            echo "WARNING: AnyDesk ID could not be detected."
+            echo "WARNING: AnyDesk ID could not be retrieved."
           fi
 
-      - name: Install Opera GX
-        shell: bash
-        run: |
-          set -e
+      # ==================================================
+      # MACHINE INFORMATION
+      # ==================================================
 
-          echo "Installing Opera GX..."
-
-          brew install --cask opera-gx || true
-
-          echo "Opera GX installation complete."
-
-      - name: Launch Roblox Creator
-        shell: bash
-        run: |
-          echo "Launching Roblox Creator..."
-
-          open -a "Opera GX" \
-            "https://create.roblox.com/landing"
-
-          sleep 5
-
-      - name: Show Machine Information
+      - name: Display Machine Information
         shell: bash
         run: |
           echo ""
           echo "================ MACHINE INFO ================"
 
+          echo ""
           echo "macOS:"
           sw_vers
 
           echo ""
-          echo "CPU:"
+          echo "Architecture:"
+          uname -m
+
+          echo ""
+          echo "CPU cores:"
           sysctl -n hw.logicalcpu
 
           echo ""
@@ -241,32 +392,72 @@ PY
           echo ""
           echo "=============================================="
 
+      # ==================================================
+      # INSTALL OPERA GX
+      # ==================================================
+
+      - name: Install Opera GX
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Installing Opera GX..."
+
+          brew install --cask opera-gx
+
+          echo "Opera GX installed."
+
+      # ==================================================
+      # OPEN ROBLOX CREATOR
+      # ==================================================
+
+      - name: Open Roblox Creator
+        shell: bash
+        run: |
+          echo "Opening Roblox Creator..."
+
+          open -a "Opera GX" \
+            "https://create.roblox.com/landing"
+
+          sleep 10
+
+      # ==================================================
+      # KEEP ALIVE
+      # ==================================================
+
       - name: Keep Alive
         shell: bash
         run: |
+          set -euo pipefail
+
           MINUTES="$RUNTIME_MINUTES"
 
-          END_TIME=$(date -v+"${MINUTES}"M)
+          START=$(date +%s)
+          END=$((START + MINUTES * 60))
 
-          echo "Cloud Mac will remain active until:"
-          echo "$END_TIME"
+          echo ""
+          echo "===================================================="
+          echo "              MACOS RUNNER ACTIVE"
+          echo "===================================================="
+          echo ""
+          echo "Runtime: $MINUTES minutes"
+          echo ""
 
           while true; do
-            NOW=$(date)
 
-            echo "Cloud Mac Heartbeat: $NOW"
+            NOW=$(date +%s)
 
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-              CURRENT=$(date +%s)
-              END=$(date -j -f "%a %b %d %T %Z %Y" \
-                "$END_TIME" +%s 2>/dev/null || echo 0)
-
-              if [ "$END" -ne 0 ] && [ "$CURRENT" -ge "$END" ]; then
-                break
-              fi
+            if [ "$NOW" -ge "$END" ]; then
+              break
             fi
 
+            REMAINING=$((END - NOW))
+
+            echo "Cloud Mac Heartbeat: $(date '+%H:%M:%S') | Remaining: ${REMAINING}s"
+
             sleep 60
+
           done
 
+          echo ""
           echo "Runtime finished."
