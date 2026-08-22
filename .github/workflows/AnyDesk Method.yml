@@ -65,36 +65,94 @@ jobs:
 
           echo "AnyDesk installed."
 
-      - name: Configure AnyDesk
+            - name: Start AnyDesk Service
         shell: bash
         run: |
           set -e
 
           ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          if [ ! -f "$ANYDESK" ]; then
-            echo "AnyDesk executable not found."
+          echo "AnyDesk executable:"
+          ls -l "$ANYDESK"
+
+          echo ""
+          echo "Starting AnyDesk..."
+
+          open -a "/Applications/AnyDesk.app"
+
+          echo "Waiting for AnyDesk processes..."
+
+          for i in {1..30}; do
+            if pgrep -if "AnyDesk" >/dev/null; then
+              echo "AnyDesk process detected on attempt $i."
+              break
+            fi
+
+            echo "Waiting... $i/30"
+            sleep 5
+          done
+
+          echo ""
+          echo "Running AnyDesk processes:"
+          pgrep -alf "AnyDesk" || true
+
+          echo ""
+          echo "Trying AnyDesk ID..."
+
+          ID=""
+
+          for i in {1..20}; do
+            ID=$("$ANYDESK" --get-id 2>/dev/null || true)
+
+            if [ -n "$ID" ]; then
+              echo "AnyDesk ID: $ID"
+              break
+            fi
+
+            echo "ID unavailable... $i/20"
+            sleep 5
+          done
+
+          if [ -z "$ID" ]; then
+            echo "AnyDesk ID could not be obtained."
+            echo "The AnyDesk service is probably not running on this runner."
             exit 1
           fi
 
-          echo "Starting AnyDesk..."
-          open -a "/Applications/AnyDesk.app"
+      - name: Configure AnyDesk Password
+        shell: bash
+        run: |
+          set -e
 
-          sleep 120
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
           echo "Configuring unattended access..."
 
-          echo "$ANYDESK_PASS" | \
-            sudo "$ANYDESK" --set-password
+          RESULT=$(printf '%s\n' "$ANYDESK_PASS" | \
+            sudo "$ANYDESK" --set-password 2>&1) || {
+              echo "AnyDesk password configuration failed."
+              echo "$RESULT"
+              exit 1
+            }
 
-          echo "Restarting AnyDesk..."
+          echo "$RESULT"
 
-          sudo pkill -f AnyDesk || true
-          sleep 60
+          echo "AnyDesk unattended access configured."
 
-          open -a "/Applications/AnyDesk.app"
+      - name: Display AnyDesk Information
+        shell: bash
+        run: |
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          sleep 60
+          ID=$("$ANYDESK" --get-id 2>/dev/null || true)
+
+          echo ""
+          echo "===================================================="
+          echo "             ANYDESK MAC READY"
+          echo "===================================================="
+          echo " CONNECTION ID : $ID"
+          echo " PASSWORD      : $ANYDESK_PASS"
+          echo "===================================================="
 
       - name: Grant macOS Remote Permissions
         shell: bash
