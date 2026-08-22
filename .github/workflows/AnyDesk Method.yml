@@ -20,7 +20,7 @@ jobs:
       - name: Clean Desktop
         shell: bash
         run: |
-          echo "Cleaning unnecessary desktop shortcuts..."
+          echo "Cleaning unnecessary desktop  shortcuts..."
 
           rm -f "$HOME/Desktop/Unity Hub.app"
           rm -f "$HOME/Desktop/Firefox.app"
