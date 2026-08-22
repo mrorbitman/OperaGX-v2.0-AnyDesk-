@@ -65,99 +65,116 @@ jobs:
 
           echo "AnyDesk installed."
 
-            - name: Configure AnyDesk
+                 - name: Configure AnyDesk
         shell: bash
         run: |
-          set -e
-
           ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
+          echo "=== AnyDesk diagnostic ==="
+
           if [ ! -f "$ANYDESK" ]; then
-            echo "AnyDesk executable not found."
+            echo "ERROR: AnyDesk executable not found:"
+            echo "$ANYDESK"
             exit 1
           fi
 
-          echo "Starting AnyDesk service..."
+          echo "AnyDesk executable found."
 
-          # Start AnyDesk normally
+          echo ""
+          echo "Starting AnyDesk..."
           open -a "/Applications/AnyDesk.app"
 
+          echo ""
           echo "Waiting for AnyDesk service..."
+          
+          ID=""
 
-          SERVICE_READY=false
+          for i in {1..60}; do
+            echo "Attempt $i/60..."
 
-          for i in {1..30}; do
-            if "$ANYDESK" --get-id >/tmp/anydesk_id 2>/tmp/anydesk_error; then
-              ID=$(cat /tmp/anydesk_id | tr -d '[:space:]')
+            OUTPUT=$("$ANYDESK" --get-id 2>&1)
+            RESULT=$?
+
+            echo "Exit code: $RESULT"
+
+            if [ "$RESULT" -eq 0 ]; then
+              ID=$(echo "$OUTPUT" | tr -d '[:space:]')
 
               if [ -n "$ID" ]; then
-                SERVICE_READY=true
-                echo "AnyDesk service is ready."
-                echo "AnyDesk ID: $ID"
+                echo "AnyDesk ID detected: $ID"
                 break
               fi
+            else
+              echo "AnyDesk has not responded yet."
+              echo "$OUTPUT"
             fi
 
-            echo "Waiting... ($i/30)"
             sleep 2
           done
 
-          if [ "$SERVICE_READY" != "true" ]; then
-            echo "AnyDesk service failed to become ready."
-            echo "AnyDesk error:"
-            cat /tmp/anydesk_error || true
+          if [ -z "$ID" ]; then
+            echo ""
+            echo "ERROR: AnyDesk never became ready."
+            echo ""
+            echo "=== Running AnyDesk processes ==="
+            ps aux | grep -i '[A]nyDesk' || true
 
             echo ""
-            echo "Running AnyDesk processes:"
-            ps aux | grep -i anydesk | grep -v grep || true
+            echo "=== AnyDesk files ==="
+            ls -la "/Applications/AnyDesk.app/Contents/MacOS/" || true
 
             exit 1
           fi
 
-          echo "Configuring unattended access..."
-
-          # Give the service a moment to fully initialize
+          echo ""
+          echo "AnyDesk service is responding."
+          echo "Waiting 5 seconds before configuring password..."
           sleep 5
 
-          PASSWORD_OUTPUT=$(printf '%s\n' "$ANYDESK_PASS" | \
-            "$ANYDESK" --set-password 2>&1) || {
-              echo "Failed to configure AnyDesk password."
-              echo "$PASSWORD_OUTPUT"
-              exit 1
-            }
+          echo ""
+          echo "=== Configuring unattended access ==="
 
-          echo "$PASSWORD_OUTPUT"
+          PASSWORD_RESULT=$(printf '%s\n' "$ANYDESK_PASS" | \
+            "$ANYDESK" --set-password 2>&1)
 
-          echo "AnyDesk unattended access configured."
+          PASSWORD_EXIT=$?
 
+          echo "Password command exit code: $PASSWORD_EXIT"
+          echo "$PASSWORD_RESULT"
+
+          if [ "$PASSWORD_EXIT" -ne 0 ]; then
+            echo ""
+            echo "ERROR: AnyDesk rejected the password configuration."
+            echo "The service was reachable, so this is not a startup timeout."
+            exit 1
+          fi
+
+          echo ""
+          echo "Password configured successfully."
+
+          echo ""
           echo "Restarting AnyDesk..."
 
-          pkill -f "/Applications/AnyDesk.app" || true
+          pkill -f "/Applications/AnyDesk.app/Contents/MacOS/AnyDesk" || true
 
           sleep 5
 
           open -a "/Applications/AnyDesk.app"
 
+          echo "Waiting for AnyDesk to restart..."
           sleep 10
 
-          echo "AnyDesk restarted successfully."
+          echo ""
+          echo "=== Final AnyDesk ID check ==="
 
-      - name: Grant macOS Remote Permissions
-        shell: bash
-        run: |
-          echo "Checking macOS permissions..."
+          FINAL_ID=$("$ANYDESK" --get-id 2>&1)
+          FINAL_EXIT=$?
+
+          echo "Exit code: $FINAL_EXIT"
+          echo "ID: $FINAL_ID"
 
           echo ""
-          echo "IMPORTANT:"
-          echo "macOS may require Screen Recording and Accessibility"
-          echo "permissions for AnyDesk."
-          echo ""
-
-          # GitHub-hosted macOS runners may not allow these
-          # permissions to be granted automatically.
-          #
-          # AnyDesk itself may therefore connect with limited
-          # interaction depending on the runner image.
+          echo "AnyDesk configuration step finished."
 
       - name: Get AnyDesk ID
         shell: bash
