@@ -153,9 +153,8 @@ jobs:
 
             echo ""
             echo "AnyDesk could not configure the password."
-            echo "This usually means the AnyDesk Service is not installed/running."
+            echo "The AnyDesk Service may not be installed/running."
             echo ""
-            echo "The workflow will continue so the remaining diagnostics can run."
 
           else
             echo "AnyDesk password configured successfully."
@@ -195,27 +194,6 @@ jobs:
 
           echo "===================================================="
           echo ""
-
-      - name: Install Opera GX
-        shell: bash
-        run: |
-          set -e
-
-          echo "Installing Opera GX..."
-
-          brew install --cask opera-gx || true
-
-          echo "Opera GX installation complete."
-
-      - name: Launch Roblox Creator
-        shell: bash
-        run: |
-          echo "Launching Roblox Creator..."
-
-          open -a "Opera GX" \
-            "https://create.roblox.com/landing"
-
-          sleep 5
 
       - name: Show Machine Information
         shell: bash
