@@ -26,22 +26,48 @@ jobs:
           rm -f "$HOME/Desktop/Firefox.app"
           rm -f "$HOME/Desktop/Google Chrome.app"
 
-      - name: Download AnyDesk
+            - name: Download AnyDesk
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Downloading AnyDesk..."
+          DMG="$RUNNER_TEMP/AnyDesk.dmg"
+          MOUNT="$RUNNER_TEMP/anydesk"
 
-          curl -L \
-            "https://download.anydesk.com/macos/AnyDesk.dmg" \
-            -o "$RUNNER_TEMP/AnyDesk.dmg"
+          echo "Downloading AnyDesk for macOS..."
 
-          echo "Mounting DMG..."
+          curl -fL \
+            --retry 3 \
+            --retry-all-errors \
+            -A "Mozilla/5.0" \
+            "https://anydesk.com/en/downloads/thank-you?dv=mac_dmg" \
+            -o "$DMG"
 
-          hdiutil attach "$RUNNER_TEMP/AnyDesk.dmg" \
+          echo "Checking downloaded file..."
+
+          file "$DMG"
+          ls -lh "$DMG"
+
+          if ! file "$DMG" | grep -Eqi 'disk image|hfs|filesystem'; then
+            echo "ERROR: The downloaded file is not a valid DMG."
+            echo "The server probably returned a webpage instead."
+            exit 1
+          fi
+
+          echo "Creating mount point..."
+          mkdir -p "$MOUNT"
+
+          echo "Mounting AnyDesk DMG..."
+
+          hdiutil attach "$DMG" \
             -nobrowse \
-            -mountpoint "$RUNNER_TEMP/anydesk"
+            -readonly \
+            -mountpoint "$MOUNT"
+
+          echo "AnyDesk DMG mounted successfully."
+
+          echo "Contents:"
+          ls -la "$MOUNT"
 
       - name: Install AnyDesk
         shell: bash
