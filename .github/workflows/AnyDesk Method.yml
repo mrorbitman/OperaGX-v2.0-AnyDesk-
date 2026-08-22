@@ -33,15 +33,34 @@ jobs:
 
           echo "Downloading AnyDesk..."
 
-          curl -L \
+          curl -fL \
             "https://download.anydesk.com/anydesk.dmg" \
             -o "$RUNNER_TEMP/anydesk.dmg"
 
-          echo "Mounting DMG..."
+          if [ ! -s "$RUNNER_TEMP/anydesk.dmg" ]; then
+            echo "AnyDesk DMG download failed."
+            exit 1
+          fi
 
-          hdiutil attach "$RUNNER_TEMP/AnyDesk.dmg" \
+          echo "DMG downloaded successfully."
+
+      - name: Mount AnyDesk DMG
+        shell: bash
+        run: |
+          set -e
+
+          echo "Mounting AnyDesk DMG..."
+
+          mkdir -p "$RUNNER_TEMP/anydesk"
+
+          hdiutil attach \
+            "$RUNNER_TEMP/anydesk.dmg" \
             -nobrowse \
+            -readonly \
             -mountpoint "$RUNNER_TEMP/anydesk"
+
+          echo "Mounted contents:"
+          ls -la "$RUNNER_TEMP/anydesk"
 
       - name: Install AnyDesk
         shell: bash
@@ -50,54 +69,57 @@ jobs:
 
           echo "Installing AnyDesk..."
 
-          if [ -d "$RUNNER_TEMP/anydesk/AnyDesk.app" ]; then
-            sudo cp -R \
-              "$RUNNER_TEMP/anydesk/AnyDesk.app" \
-              "/Applications/AnyDesk.app"
-          else
-            echo "AnyDesk.app was not found in the mounted image."
+          if [ ! -d "$RUNNER_TEMP/anydesk/AnyDesk.app" ]; then
+            echo "AnyDesk.app was not found."
             exit 1
           fi
 
+          rm -rf "/Applications/AnyDesk.app"
+
+          sudo cp -R \
+            "$RUNNER_TEMP/anydesk/AnyDesk.app" \
+            "/Applications/AnyDesk.app"
+
+          echo "AnyDesk.app copied to Applications."
+
           hdiutil detach "$RUNNER_TEMP/anydesk" || true
 
-          rm -f "$RUNNER_TEMP/AnyDesk.dmg"
+          rm -f "$RUNNER_TEMP/anydesk.dmg"
 
-          echo "AnyDesk installed."
-
-            - name: Start AnyDesk Service
+      - name: Launch AnyDesk
         shell: bash
         run: |
           set -e
 
           ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
-          echo "AnyDesk executable:"
-          ls -l "$ANYDESK"
+          if [ ! -f "$ANYDESK" ]; then
+            echo "AnyDesk executable not found."
+            exit 1
+          fi
 
-          echo ""
-          echo "Starting AnyDesk..."
+          echo "Launching AnyDesk..."
 
           open -a "/Applications/AnyDesk.app"
 
-          echo "Waiting for AnyDesk processes..."
+          echo "Giving AnyDesk time to initialize..."
 
-          for i in {1..30}; do
-            if pgrep -if "AnyDesk" >/dev/null; then
-              echo "AnyDesk process detected on attempt $i."
-              break
-            fi
+          sleep 30
 
-            echo "Waiting... $i/30"
-            sleep 5
-          done
+          echo "AnyDesk processes:"
 
-          echo ""
-          echo "Running AnyDesk processes:"
           pgrep -alf "AnyDesk" || true
 
+      - name: Check AnyDesk Status
+        shell: bash
+        run: |
+          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
+
+          echo "Checking AnyDesk version..."
+          "$ANYDESK" --version || true
+
           echo ""
-          echo "Trying AnyDesk ID..."
+          echo "Checking AnyDesk ID..."
 
           ID=""
 
@@ -105,18 +127,16 @@ jobs:
             ID=$("$ANYDESK" --get-id 2>/dev/null || true)
 
             if [ -n "$ID" ]; then
-              echo "AnyDesk ID: $ID"
+              echo "AnyDesk ID detected: $ID"
               break
             fi
 
-            echo "ID unavailable... $i/20"
+            echo "Waiting for AnyDesk... $i/20"
             sleep 5
           done
 
           if [ -z "$ID" ]; then
-            echo "AnyDesk ID could not be obtained."
-            echo "The AnyDesk service is probably not running on this runner."
-            exit 1
+            echo "WARNING: AnyDesk ID was not available."
           fi
 
       - name: Configure AnyDesk Password
@@ -128,61 +148,29 @@ jobs:
 
           echo "Configuring unattended access..."
 
-          RESULT=$(printf '%s\n' "$ANYDESK_PASS" | \
-            sudo "$ANYDESK" --set-password 2>&1) || {
-              echo "AnyDesk password configuration failed."
-              echo "$RESULT"
-              exit 1
-            }
+          if ! printf '%s\n' "$ANYDESK_PASS" | \
+            sudo "$ANYDESK" --set-password; then
 
-          echo "$RESULT"
+            echo ""
+            echo "AnyDesk could not configure the password."
+            echo "This usually means the AnyDesk Service is not installed/running."
+            echo ""
+            echo "The workflow will continue so the remaining diagnostics can run."
 
-          echo "AnyDesk unattended access configured."
-
-      - name: Display AnyDesk Information
-        shell: bash
-        run: |
-          ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
-
-          ID=$("$ANYDESK" --get-id 2>/dev/null || true)
-
-          echo ""
-          echo "===================================================="
-          echo "             ANYDESK MAC READY"
-          echo "===================================================="
-          echo " CONNECTION ID : $ID"
-          echo " PASSWORD      : $ANYDESK_PASS"
-          echo "===================================================="
-
-      - name: Grant macOS Remote Permissions
-        shell: bash
-        run: |
-          echo "Checking macOS permissions..."
-
-          echo ""
-          echo "IMPORTANT:"
-          echo "macOS may require Screen Recording and Accessibility"
-          echo "permissions for AnyDesk."
-          echo ""
-
-          # GitHub-hosted macOS runners may not allow these
-          # permissions to be granted automatically.
-          #
-          # AnyDesk itself may therefore connect with limited
-          # interaction depending on the runner image.
+          else
+            echo "AnyDesk password configured successfully."
+          fi
 
       - name: Get AnyDesk ID
         shell: bash
         run: |
-          set -e
-
           ANYDESK="/Applications/AnyDesk.app/Contents/MacOS/AnyDesk"
 
           echo "Waiting for AnyDesk ID..."
 
           ID=""
 
-          for i in {1..15}; do
+          for i in {1..30}; do
             ID=$("$ANYDESK" --get-id 2>/dev/null || true)
 
             if [ -n "$ID" ]; then
@@ -194,16 +182,19 @@ jobs:
 
           echo ""
           echo "===================================================="
-          echo "          ANYDESK MAC CLOUD MACHINE READY"
+          echo "             ANYDESK MAC CLOUD MACHINE"
           echo "===================================================="
-          echo " CONNECTION ID : $ID"
+
+          if [ -n "$ID" ]; then
+            echo " CONNECTION ID : $ID"
+          else
+            echo " CONNECTION ID : unavailable"
+          fi
+
           echo " PASSWORD      : $ANYDESK_PASS"
+
           echo "===================================================="
           echo ""
-
-          if [ -z "$ID" ]; then
-            echo "WARNING: AnyDesk ID could not be detected."
-          fi
 
       - name: Install Opera GX
         shell: bash
@@ -236,6 +227,10 @@ jobs:
           sw_vers
 
           echo ""
+          echo "Architecture:"
+          uname -m
+
+          echo ""
           echo "CPU:"
           sysctl -n hw.logicalcpu
 
@@ -251,25 +246,25 @@ jobs:
         run: |
           MINUTES="$RUNTIME_MINUTES"
 
-          END_TIME=$(date -v+"${MINUTES}"M)
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + MINUTES * 60))
 
-          echo "Cloud Mac will remain active until:"
-          echo "$END_TIME"
+          echo "Cloud Mac started:"
+          date
+
+          echo "Runtime: ${MINUTES} minutes"
 
           while true; do
-            NOW=$(date)
+            CURRENT_TIME=$(date +%s)
 
-            echo "Cloud Mac Heartbeat: $NOW"
-
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-              CURRENT=$(date +%s)
-              END=$(date -j -f "%a %b %d %T %Z %Y" \
-                "$END_TIME" +%s 2>/dev/null || echo 0)
-
-              if [ "$END" -ne 0 ] && [ "$CURRENT" -ge "$END" ]; then
-                break
-              fi
+            if [ "$CURRENT_TIME" -ge "$END_TIME" ]; then
+              break
             fi
+
+            REMAINING=$((END_TIME - CURRENT_TIME))
+            REMAINING_MIN=$((REMAINING / 60))
+
+            echo "Cloud Mac Heartbeat: $(date) | ${REMAINING_MIN} minutes remaining"
 
             sleep 60
           done
