@@ -65,7 +65,7 @@ jobs:
 
           echo "AnyDesk installed."
 
-      - name: Configure AnyDesk
+            - name: Configure AnyDesk
         shell: bash
         run: |
           set -e
@@ -77,24 +77,70 @@ jobs:
             exit 1
           fi
 
-          echo "Starting AnyDesk..."
+          echo "Starting AnyDesk service..."
+
+          # Start AnyDesk normally
           open -a "/Applications/AnyDesk.app"
 
-          sleep 20
+          echo "Waiting for AnyDesk service..."
+
+          SERVICE_READY=false
+
+          for i in {1..30}; do
+            if "$ANYDESK" --get-id >/tmp/anydesk_id 2>/tmp/anydesk_error; then
+              ID=$(cat /tmp/anydesk_id | tr -d '[:space:]')
+
+              if [ -n "$ID" ]; then
+                SERVICE_READY=true
+                echo "AnyDesk service is ready."
+                echo "AnyDesk ID: $ID"
+                break
+              fi
+            fi
+
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+          if [ "$SERVICE_READY" != "true" ]; then
+            echo "AnyDesk service failed to become ready."
+            echo "AnyDesk error:"
+            cat /tmp/anydesk_error || true
+
+            echo ""
+            echo "Running AnyDesk processes:"
+            ps aux | grep -i anydesk | grep -v grep || true
+
+            exit 1
+          fi
 
           echo "Configuring unattended access..."
 
-          echo "$ANYDESK_PASS" | \
-            sudo "$ANYDESK" --set-password
+          # Give the service a moment to fully initialize
+          sleep 5
+
+          PASSWORD_OUTPUT=$(printf '%s\n' "$ANYDESK_PASS" | \
+            "$ANYDESK" --set-password 2>&1) || {
+              echo "Failed to configure AnyDesk password."
+              echo "$PASSWORD_OUTPUT"
+              exit 1
+            }
+
+          echo "$PASSWORD_OUTPUT"
+
+          echo "AnyDesk unattended access configured."
 
           echo "Restarting AnyDesk..."
 
-          sudo pkill -f AnyDesk || true
-          sleep 10
+          pkill -f "/Applications/AnyDesk.app" || true
+
+          sleep 5
 
           open -a "/Applications/AnyDesk.app"
 
-          sleep 30
+          sleep 10
+
+          echo "AnyDesk restarted successfully."
 
       - name: Grant macOS Remote Permissions
         shell: bash
