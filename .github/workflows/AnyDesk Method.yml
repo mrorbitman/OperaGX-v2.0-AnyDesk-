@@ -26,7 +26,56 @@ jobs:
           rm -f "$HOME/Desktop/Firefox.app"
           rm -f "$HOME/Desktop/Google Chrome.app"
 
-            - name: Download AnyDesk
+                 - name: Download AnyDesk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COMPRESSED="$RUNNER_TEMP/AnyDesk.download"
+          DMG="$RUNNER_TEMP/AnyDesk.dmg"
+
+          echo "Downloading AnyDesk..."
+
+          curl -fL \
+            --retry 3 \
+            --retry-all-errors \
+            -A "Mozilla/5.0" \
+            "https://anydesk.com/en/downloads/thank-you?dv=mac_dmg" \
+            -o "$COMPRESSED"
+
+          echo "Downloaded:"
+          ls -lh "$COMPRESSED"
+
+          echo "Decompressing AnyDesk..."
+
+          python3 - "$COMPRESSED" "$DMG" <<'PY'
+import sys
+import zlib
+
+src = sys.argv[1]
+dst = sys.argv[2]
+
+with open(src, "rb") as f:
+    data = f.read()
+
+decompressor = zlib.decompressobj()
+output = decompressor.decompress(data)
+
+if not decompressor.eof:
+    raise RuntimeError("The AnyDesk download did not contain a complete zlib stream.")
+
+with open(dst, "wb") as f:
+    f.write(output)
+
+print(f"Decompressed {len(data):,} bytes -> {len(output):,} bytes")
+PY
+
+          echo "Checking DMG..."
+
+          file "$DMG"
+          ls -lh "$DMG"
+
+      - name: Mount AnyDesk
         shell: bash
         run: |
           set -euo pipefail
@@ -34,39 +83,17 @@ jobs:
           DMG="$RUNNER_TEMP/AnyDesk.dmg"
           MOUNT="$RUNNER_TEMP/anydesk"
 
-          echo "Downloading AnyDesk for macOS..."
-
-          curl -fL \
-            --retry 3 \
-            --retry-all-errors \
-            -A "Mozilla/5.0" \
-            "https://anydesk.com/en/downloads/thank-you?dv=mac_dmg" \
-            -o "$DMG"
-
-          echo "Checking downloaded file..."
-
-          file "$DMG"
-          ls -lh "$DMG"
-
-          if ! file "$DMG" | grep -Eqi 'disk image|hfs|filesystem'; then
-            echo "ERROR: The downloaded file is not a valid DMG."
-            echo "The server probably returned a webpage instead."
-            exit 1
-          fi
-
-          echo "Creating mount point..."
           mkdir -p "$MOUNT"
 
-          echo "Mounting AnyDesk DMG..."
+          echo "Mounting AnyDesk..."
 
           hdiutil attach "$DMG" \
             -nobrowse \
             -readonly \
             -mountpoint "$MOUNT"
 
-          echo "AnyDesk DMG mounted successfully."
+          echo "Mounted successfully."
 
-          echo "Contents:"
           ls -la "$MOUNT"
 
       - name: Install AnyDesk
