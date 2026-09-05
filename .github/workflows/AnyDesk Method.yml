@@ -1,4 +1,4 @@
-name: AnyDesk Ubuntu
+name: AnyDesk Ubuntu GNOME
 
 on:
   workflow_dispatch:
@@ -15,10 +15,11 @@ jobs:
       RUNTIME_MINUTES: 350
 
     steps:
-      - name: Update System & Install XFCE Desktop Environment
+      - name: Update System & Install GNOME Desktop Environment
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y xfce4 xfce4-goodies xvfb wget curl dbus-x11
+          # Install GNOME desktop, Xvfb virtual display, and X11 utilities
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ubuntu-desktop xvfb x11-xserver-utils dbus-x11 wget curl
 
       - name: Install AnyDesk
         run: |
@@ -34,23 +35,29 @@ jobs:
           sudo apt-get update -y
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y opera-stable
 
-      - name: Start Virtual Display Server (Xvfb) & XFCE4 Desktop
+      - name: Start Virtual Display Server (Xvfb) & GNOME Session
         run: |
-          # Start Xvfb virtual frame buffer on display :1 with 1080p resolution
+          # 1. Start Xvfb on display :1 with 1080p resolution
           Xvfb :1 -screen 0 1920x1080x24 &
           export DISPLAY=:1
           
-          # Start XFCE Desktop session in background
-          dbus-launch startxfce4 &
-          sleep 5
+          # 2. Grant local X display permissions for root background services like AnyDesk
+          xhost +local: || true
+          
+          # 3. Launch GNOME Desktop session
+          dbus-launch gnome-session &
+          sleep 8
 
-      - name: Configure AnyDesk Password & Start Service
+      - name: Configure and Launch AnyDesk Service on Display :1
         run: |
+          export DISPLAY=:1
+          
           # Set unattended access password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Enable and start AnyDesk service background daemon
-          sudo systemctl start anydesk || sudo service anydesk start
+          # Stop default background service and relaunch explicitly bound to DISPLAY=:1
+          sudo systemctl stop anydesk || true
+          sudo DISPLAY=:1 anydesk --service &
           sleep 5
 
       - name: Launch Opera Browser Session
@@ -93,6 +100,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Running active Linux desktop session..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active GNOME desktop session running..."
             sleep 60
           done
