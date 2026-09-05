@@ -22,19 +22,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ubuntu-desktop-minimal \
             gnome-shell \
+            gnome-session-flashback \
             xvfb \
             x11-xserver-utils \
             dbus-x11 \
+            xauth \
             wget \
             curl
-
-      - name: Force Disable Wayland Globally
-        run: |
-          sudo mkdir -p /etc/gdm3
-          sudo bash -c 'cat <<EOF > /etc/gdm3/custom.conf
-          [daemon]
-          WaylandEnable=false
-          EOF'
 
       - name: Install AnyDesk
         run: |
@@ -50,18 +44,26 @@ jobs:
           sudo apt-get update -y
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y opera-stable
 
-      - name: Start Virtual Display Server (Xvfb) & GNOME Session
+      - name: Start Virtual Display Server & GNOME Desktop
         run: |
-          # 1. Start Xvfb virtual framebuffer on display :1
-          Xvfb :1 -screen 0 1920x1080x24 &
+          # 1. Start Xvfb background server
+          Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
           export DISPLAY=:1
           
-          # 2. Open up permissions so root processes can access the X display
-          xhost + || true
+          # Wait 3 seconds for Xvfb socket to open on :1
+          sleep 3
           
-          # 3. Launch GNOME session
-          dbus-launch gnome-session &
-          sleep 8
+          # 2. Create Xauthority file so root/service daemons can authenticate
+          touch ~/.Xauthority
+          sudo cp ~/.Xauthority /root/.Xauthority
+          
+          # 3. Allow local xhost connections (Will now succeed!)
+          xhost +local: || true
+          
+          # 4. Force software rendering for GNOME inside Xvfb
+          export LIBGL_ALWAYS_SOFTWARE=1
+          dbus-launch gnome-session --session=gnome-flashback &
+          sleep 5
 
       - name: Configure AnyDesk Service with Hardcoded Display Override
         run: |
@@ -70,10 +72,10 @@ jobs:
           # Set unattended access password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Stop the default service
+          # Stop standard unit service
           sudo systemctl stop anydesk || true
           
-          # Inject DISPLAY environment variable directly into systemd unit service override
+          # Inject DISPLAY and XAUTHORITY system variables directly into systemd
           sudo mkdir -p /etc/systemd/system/anydesk.service.d/
           sudo bash -c 'cat <<EOF > /etc/systemd/system/anydesk.service.d/override.conf
           [Service]
@@ -81,7 +83,6 @@ jobs:
           Environment="XAUTHORITY=/root/.Xauthority"
           EOF'
           
-          # Reload systemd and restart service
           sudo systemctl daemon-reload
           sudo systemctl start anydesk
           sleep 5
