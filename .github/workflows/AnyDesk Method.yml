@@ -15,11 +15,26 @@ jobs:
       RUNTIME_MINUTES: 350
 
     steps:
-      - name: Update System & Install GNOME Desktop Environment
+      - name: Update System & Install Core GNOME Desktop
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
-          # Install GNOME desktop, Xvfb virtual display, and X11 utilities
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ubuntu-desktop xvfb x11-xserver-utils dbus-x11 wget curl
+          sudo apt-get install -y --no-install-recommends \
+            ubuntu-desktop-minimal \
+            gnome-shell \
+            xvfb \
+            x11-xserver-utils \
+            dbus-x11 \
+            wget \
+            curl
+
+      - name: Force Disable Wayland Globally
+        run: |
+          sudo mkdir -p /etc/gdm3
+          sudo bash -c 'cat <<EOF > /etc/gdm3/custom.conf
+          [daemon]
+          WaylandEnable=false
+          EOF'
 
       - name: Install AnyDesk
         run: |
@@ -37,33 +52,43 @@ jobs:
 
       - name: Start Virtual Display Server (Xvfb) & GNOME Session
         run: |
-          # 1. Start Xvfb on display :1 with 1080p resolution
+          # 1. Start Xvfb virtual framebuffer on display :1
           Xvfb :1 -screen 0 1920x1080x24 &
           export DISPLAY=:1
           
-          # 2. Grant local X display permissions for root background services like AnyDesk
-          xhost +local: || true
+          # 2. Open up permissions so root processes can access the X display
+          xhost + || true
           
-          # 3. Launch GNOME Desktop session
+          # 3. Launch GNOME session
           dbus-launch gnome-session &
           sleep 8
 
-      - name: Configure and Launch AnyDesk Service on Display :1
+      - name: Configure AnyDesk Service with Hardcoded Display Override
         run: |
           export DISPLAY=:1
           
           # Set unattended access password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Stop default background service and relaunch explicitly bound to DISPLAY=:1
+          # Stop the default service
           sudo systemctl stop anydesk || true
-          sudo DISPLAY=:1 anydesk --service &
+          
+          # Inject DISPLAY environment variable directly into systemd unit service override
+          sudo mkdir -p /etc/systemd/system/anydesk.service.d/
+          sudo bash -c 'cat <<EOF > /etc/systemd/system/anydesk.service.d/override.conf
+          [Service]
+          Environment="DISPLAY=:1"
+          Environment="XAUTHORITY=/root/.Xauthority"
+          EOF'
+          
+          # Reload systemd and restart service
+          sudo systemctl daemon-reload
+          sudo systemctl start anydesk
           sleep 5
 
       - name: Launch Opera Browser Session
         run: |
           export DISPLAY=:1
-          # Launch Opera targeting Roblox Landing in the background
           opera https://create.roblox.com/landing --no-sandbox --no-first-run > /dev/null 2>&1 &
           sleep 5
 
