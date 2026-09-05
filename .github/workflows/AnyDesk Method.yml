@@ -44,47 +44,31 @@ jobs:
           sudo apt-get update -y
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y opera-stable
 
-      - name: Start Virtual Display Server & GNOME Desktop
+      - name: Start Display Server & GNOME Desktop
         run: |
-          # 1. Start Xvfb background server
+          # 1. Start Xvfb virtual framebuffer on display :1
           Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
           export DISPLAY=:1
           
-          # Wait 3 seconds for Xvfb socket to open on :1
           sleep 3
           
-          # 2. Create Xauthority file so root/service daemons can authenticate
-          touch ~/.Xauthority
-          sudo cp ~/.Xauthority /root/.Xauthority
-          
-          # 3. Allow local xhost connections (Will now succeed!)
+          # 2. Allow local connections to X11
           xhost +local: || true
           
-          # 4. Force software rendering for GNOME inside Xvfb
+          # 3. Launch GNOME desktop in fallback mode for software rendering
           export LIBGL_ALWAYS_SOFTWARE=1
           dbus-launch gnome-session --session=gnome-flashback &
           sleep 5
 
-      - name: Configure AnyDesk Service with Hardcoded Display Override
+      - name: Configure AnyDesk Password & Direct Process Launch
         run: |
           export DISPLAY=:1
           
           # Set unattended access password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Stop standard unit service
-          sudo systemctl stop anydesk || true
-          
-          # Inject DISPLAY and XAUTHORITY system variables directly into systemd
-          sudo mkdir -p /etc/systemd/system/anydesk.service.d/
-          sudo bash -c 'cat <<EOF > /etc/systemd/system/anydesk.service.d/override.conf
-          [Service]
-          Environment="DISPLAY=:1"
-          Environment="XAUTHORITY=/root/.Xauthority"
-          EOF'
-          
-          sudo systemctl daemon-reload
-          sudo systemctl start anydesk
+          # Bypass broken systemd daemon: launch AnyDesk explicitly tied to DISPLAY=:1
+          sudo DISPLAY=:1 anydesk --tray &
           sleep 5
 
       - name: Launch Opera Browser Session
@@ -98,14 +82,14 @@ jobs:
           CLEAN_ID=""
           CONF_PATH="/etc/anydesk/system.conf"
           
-          for i in {1..10}; do
+          for i in {1..15}; do
             if [ -f "$CONF_PATH" ]; then
               CLEAN_ID=$(grep -oP 'ad\.anynet\.id=\K\d+' "$CONF_PATH" || true)
               if [ -n "$CLEAN_ID" ]; then
                 break
               fi
             fi
-            sleep 4
+            sleep 3
           done
 
           GREEN='\033[0;32m'
@@ -126,6 +110,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active GNOME desktop session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Running active Linux desktop session..."
             sleep 60
           done
