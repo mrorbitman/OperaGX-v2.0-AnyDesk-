@@ -1,4 +1,4 @@
-name: AnyDesk Ubuntu GNOME
+name: RustDesk Ubuntu GNOME
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      ANYDESK_PASS: Pass@4321
+      RUSTDESK_PASS: Pass@4321
       RUNTIME_MINUTES: 350
 
     steps:
@@ -29,15 +29,16 @@ jobs:
             xauth \
             wget \
             curl \
-            libpolkit-gobject-1-0
+            libxdo3 \
+            libfixposix3
 
-      - name: Download & Install AnyDesk v6 (Legacy X11 Build)
+      - name: Install RustDesk
         run: |
-          # Fetch AnyDesk v6.0.1 directly to bypass Wayland checks
-          wget https://download.anydesk.com/linux/anydesk_6.0.1-1_amd64.deb -O anydesk.deb || \
-          wget https://deb.anydesk.com/pool/main/a/anydesk/anydesk_6.1.1-1_amd64.deb -O anydesk.deb
-          sudo dpkg -i anydesk.deb || sudo apt-get install -f -y
-          rm anydesk.deb
+          # Fetch the latest stable RustDesk deb release
+          RUSTDESK_URL=$(curl -s https://api.github.com/repos/rustdesk/rustdesk/releases/latest | grep "browser_download_url.*amd64.deb" | cut -d : -f 2,3 | tr -d '" ')
+          wget $RUSTDESK_URL -O rustdesk.deb
+          sudo dpkg -i rustdesk.deb || sudo apt-get install -f -y
+          rm rustdesk.deb
 
       - name: Install Opera Browser
         run: |
@@ -57,20 +58,20 @@ jobs:
           # 2. Allow local connections to X11 display
           xhost +local: || true
           
-          # 3. Force software GL rendering and launch GNOME flashback session
+          # 3. Launch GNOME Flashback session with software GL
           export LIBGL_ALWAYS_SOFTWARE=1
           dbus-launch gnome-session --session=gnome-flashback &
           sleep 5
 
-      - name: Configure AnyDesk Password & Service Launch
+      - name: Configure RustDesk Password & Launch Service
         run: |
           export DISPLAY=:1
           
-          # Set unattended access password
-          echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
+          # Set static password for unattended access
+          sudo rustdesk --password "${{ env.RUSTDESK_PASS }}"
           
-          # Launch AnyDesk daemon bound directly to DISPLAY=:1
-          sudo DISPLAY=:1 anydesk --service &
+          # Start RustDesk service and GUI process inside X11 session
+          sudo rustdesk --service &
           sleep 5
 
       - name: Launch Opera Browser Session
@@ -79,17 +80,15 @@ jobs:
           opera https://create.roblox.com/landing --no-sandbox --no-first-run > /dev/null 2>&1 &
           sleep 5
 
-      - name: Fetch and Display AnyDesk Connection Address
+      - name: Fetch and Display RustDesk ID
         run: |
           CLEAN_ID=""
-          CONF_PATH="/etc/anydesk/system.conf"
           
-          for i in {1..15}; do
-            if [ -f "$CONF_PATH" ]; then
-              CLEAN_ID=$(grep -oP 'ad\.anynet\.id=\K\d+' "$CONF_PATH" || true)
-              if [ -n "$CLEAN_ID" ]; then
-                break
-              fi
+          # Wait for RustDesk to generate its connection ID
+          for i in {1..20}; do
+            CLEAN_ID=$(sudo rustdesk --get-id 2>/dev/null | tr -d '[:space:]')
+            if [ -n "$CLEAN_ID" ] && [[ "$CLEAN_ID" =~ ^[0-9]+$ ]]; then
+              break
             fi
             sleep 3
           done
@@ -100,10 +99,10 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}        ANYDESK CLOUD MACHINE IS READY TO CONNECT     ${RESET}"
+          echo -e "${GREEN}        RUSTDESK CLOUD MACHINE IS READY             ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${YELLOW} CONNECTION ID : ${RED}${CLEAN_ID}${RESET}"
-          echo -e "${YELLOW} PASSWORD      : ${RED}${{ env.ANYDESK_PASS }}${RESET}"
+          echo -e "${YELLOW} PASSWORD      : ${RED}${{ env.RUSTDESK_PASS }}${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
 
       - name: Keep alive
