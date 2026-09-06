@@ -17,10 +17,10 @@ jobs:
     steps:
       - name: Create 4GB Swap Space (Prevents OOM Kills)
         run: |
-          sudo fallocate -l 4G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 4G /swapfile2 || sudo dd if=/dev/zero of=/swapfile2 bs=1M count=4096
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
 
       - name: Update System & Install XFCE Desktop
         run: |
