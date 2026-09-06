@@ -1,4 +1,4 @@
-name: AnyDesk Ubuntu GNOME
+name: AnyDesk Ubuntu Workstation
 
 on:
   workflow_dispatch:
@@ -15,27 +15,27 @@ jobs:
       RUNTIME_MINUTES: 350
 
     steps:
-      - name: Update System & Install Core GNOME Desktop
+      - name: Update System & Install XFCE Desktop
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            ubuntu-desktop-minimal \
-            gnome-shell \
-            gnome-session-flashback \
+            xfce4 \
+            xfce4-goodies \
             xvfb \
             x11-xserver-utils \
             dbus-x11 \
-            xauth \
             wget \
-            curl
+            curl \
+            libpolkit-gobject-1-0 \
+            libpangox-1.0-0
 
-      - name: Install AnyDesk
+      - name: Download & Install AnyDesk v6 (Wayland-Bypass Build)
         run: |
-          wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/anydesk.gpg
-          echo "deb http://deb.anydesk.com/ all main" | sudo tee /etc/apt/sources.list.d/anydesk.list
-          sudo apt-get update -y
-          sudo apt-get install -y anydesk
+          # Downloading v6.3.2 DEB package directly to bypass broken v8 Wayland checks
+          wget https://download.anydesk.com/linux/anydesk_6.3.2-1_amd64.deb -O anydesk.deb
+          sudo dpkg -i anydesk.deb || sudo apt-get install -f -y
+          rm anydesk.deb
 
       - name: Install Opera Browser
         run: |
@@ -44,31 +44,29 @@ jobs:
           sudo apt-get update -y
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y opera-stable
 
-      - name: Start Display Server & GNOME Desktop
+      - name: Start Virtual Display & XFCE Session
         run: |
-          # 1. Start Xvfb virtual framebuffer on display :1
-          Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+          # Start Xvfb on display :1
+          Xvfb :1 -screen 0 1920x1080x24 +extension GLX +render -noreset &
           export DISPLAY=:1
-          
           sleep 3
           
-          # 2. Allow local connections to X11
+          # Grant display permissions
           xhost +local: || true
           
-          # 3. Launch GNOME desktop in fallback mode for software rendering
-          export LIBGL_ALWAYS_SOFTWARE=1
-          dbus-launch gnome-session --session=gnome-flashback &
+          # Launch XFCE Desktop Session
+          dbus-launch startxfce4 &
           sleep 5
 
-      - name: Configure AnyDesk Password & Direct Process Launch
+      - name: Configure AnyDesk Password & Launch Process
         run: |
           export DISPLAY=:1
           
-          # Set unattended access password
+          # Set password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Bypass broken systemd daemon: launch AnyDesk explicitly tied to DISPLAY=:1
-          sudo DISPLAY=:1 anydesk --tray &
+          # Launch AnyDesk bound directly to DISPLAY=:1
+          sudo DISPLAY=:1 anydesk --service &
           sleep 5
 
       - name: Launch Opera Browser Session
@@ -110,6 +108,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Running active Linux desktop session..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active desktop session running..."
             sleep 60
           done
