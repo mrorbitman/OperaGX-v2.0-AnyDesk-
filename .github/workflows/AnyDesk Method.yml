@@ -1,4 +1,4 @@
-name: AnyDesk Ubuntu Workstation
+name: AnyDesk Ubuntu GNOME
 
 on:
   workflow_dispatch:
@@ -15,24 +15,26 @@ jobs:
       RUNTIME_MINUTES: 350
 
     steps:
-      - name: Update System & Install XFCE Desktop
+      - name: Update System & Install Core GNOME Desktop
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            xfce4 \
-            xfce4-goodies \
+            ubuntu-desktop-minimal \
+            gnome-shell \
+            gnome-session-flashback \
             xvfb \
             x11-xserver-utils \
             dbus-x11 \
+            xauth \
             wget \
             curl \
             libpolkit-gobject-1-0 \
             libpangox-1.0-0
 
-      - name: Download & Install AnyDesk v6 (Wayland-Bypass Build)
+      - name: Download & Install AnyDesk v6 (Legacy X11 Build)
         run: |
-          # Downloading v6.3.2 DEB package directly to bypass broken v8 Wayland checks
+          # Fetch AnyDesk v6 directly to bypass Wayland checks
           wget https://download.anydesk.com/linux/anydesk_6.3.2-1_amd64.deb -O anydesk.deb
           sudo dpkg -i anydesk.deb || sudo apt-get install -f -y
           rm anydesk.deb
@@ -44,28 +46,30 @@ jobs:
           sudo apt-get update -y
           DEBIAN_FRONTEND=noninteractive sudo apt-get install -y opera-stable
 
-      - name: Start Virtual Display & XFCE Session
+      - name: Start Virtual Display & GNOME Session
         run: |
-          # Start Xvfb on display :1
-          Xvfb :1 -screen 0 1920x1080x24 +extension GLX +render -noreset &
+          # 1. Start Xvfb framebuffer on display :1
+          Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
           export DISPLAY=:1
+          
           sleep 3
           
-          # Grant display permissions
+          # 2. Allow local connections to X11 display
           xhost +local: || true
           
-          # Launch XFCE Desktop Session
-          dbus-launch startxfce4 &
+          # 3. Force software GL rendering and launch GNOME flashback session
+          export LIBGL_ALWAYS_SOFTWARE=1
+          dbus-launch gnome-session --session=gnome-flashback &
           sleep 5
 
-      - name: Configure AnyDesk Password & Launch Process
+      - name: Configure AnyDesk Password & Service Launch
         run: |
           export DISPLAY=:1
           
-          # Set password
+          # Set unattended access password
           echo "${{ env.ANYDESK_PASS }}" | sudo anydesk --set-password
           
-          # Launch AnyDesk bound directly to DISPLAY=:1
+          # Launch AnyDesk daemon bound directly to DISPLAY=:1
           sudo DISPLAY=:1 anydesk --service &
           sleep 5
 
@@ -108,6 +112,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active desktop session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active GNOME desktop session running..."
             sleep 60
           done
