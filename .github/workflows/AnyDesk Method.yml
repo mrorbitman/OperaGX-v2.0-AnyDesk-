@@ -34,7 +34,8 @@ jobs:
             dbus-x11 \
             xauth \
             wget \
-            curl
+            curl \
+            at-spi2-core
 
       - name: Install RustDesk
         run: |
@@ -63,19 +64,23 @@ jobs:
           xhost +local: || true
           
           # 2. Start Lightweight Desktop Session
-          dbus-launch startxfce4 &
+          dbus-launch startxfce4 > /dev/null 2>&1 &
           sleep 5
 
-      - name: Configure and Launch RustDesk Service
+      - name: Configure and Start RustDesk Engine
         run: |
           export DISPLAY=:1
           export XDG_SESSION_TYPE=x11
           
-          # Set static unattended access password
+          # 1. Start core service daemon
+          sudo rustdesk --service &
+          sleep 3
+          
+          # 2. Set unattended access password
           sudo rustdesk --password "${{ env.RUSTDESK_PASS }}"
           
-          # Enable and start rustdesk background service bound to X11 display
-          sudo DISPLAY=:1 XDG_SESSION_TYPE=x11 rustdesk --service &
+          # 3. Launch UI process inside DISPLAY=:1 to bind rendering
+          rustdesk --tray > /dev/null 2>&1 &
           sleep 5
 
       - name: Launch Opera Browser Session
