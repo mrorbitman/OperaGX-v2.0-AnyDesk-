@@ -1,4 +1,4 @@
-name: GNOME VNC via ngrok
+name: GNOME VNC via Pinggy
 
 on:
   workflow_dispatch:
@@ -34,21 +34,8 @@ jobs:
             dbus-x11 \
             xauth \
             wget \
-            curl
-
-      - name: Install & Configure ngrok
-        run: |
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt-get update -y
-          sudo apt-get install -y ngrok
-          
-          if [ -z "${{ secrets.NGROK_AUTH_TOKEN }}" ]; then
-            echo "ERROR: NGROK_AUTH_TOKEN secret is missing!"
-            exit 1
-          fi
-          
-          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+            curl \
+            openssh-client
 
       - name: Configure VNC Password & xstartup Script
         run: |
@@ -82,21 +69,14 @@ jobs:
           x-www-browser https://create.roblox.com/landing > /dev/null 2>&1 &
           sleep 3
 
-      - name: Start ngrok Tunnel & Print Connection Info
+      - name: Start Pinggy TCP Tunnel & Display URL
         run: |
-          # Start ngrok in background and redirect logs to a file for debugging if needed
-          ngrok tcp 5901 --log=stdout > /tmp/ngrok.log 2>&1 &
-          sleep 5
-          
-          # Check if ngrok is running
-          if ! pgrep -x "ngrok" > /dev/null; then
-            echo "--- NGROK LOGS (FAILED TO START) ---"
-            cat /tmp/ngrok.log
-            exit 1
-          fi
+          # Create SSH tunnel to pinggy on port 5901 (VNC)
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:5901 a.pinggy.io tcp > /tmp/pinggy.log 2>&1 &
+          sleep 6
 
-          # Fetch public tunnel URL from ngrok local API
-          NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | grep -oP 'tcp://\K[^"]+')
+          # Output connection log
+          cat /tmp/pinggy.log
 
           GREEN='\033[0;32m'
           YELLOW='\033[1;33m'
@@ -106,7 +86,7 @@ jobs:
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${GREEN}          GNOME VNC SERVER IS READY TO CONNECT       ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${YELLOW} VNC ADDRESS  : ${RED}${NGROK_URL}${RESET}"
+          echo -e "${YELLOW} Check logs above for your TCP URL (e.g. t.pinggy.link:XXXXX) ${RESET}"
           echo -e "${YELLOW} VNC PASSWORD : ${RED}${{ env.VNC_PASS }}${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
 
