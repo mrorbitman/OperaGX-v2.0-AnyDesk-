@@ -1,4 +1,4 @@
-name: GNOME VNC via Pinggy
+name: LXQt VNC via Pinggy
 
 on:
   workflow_dispatch:
@@ -22,14 +22,14 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install GNOME Desktop + VNC
+      - name: Update System & Install LXQt Desktop + VNC
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            ubuntu-desktop-minimal \
-            gnome-shell \
-            gnome-session-flashback \
+            lxqt-core \
+            lxqt-session \
+            lxterminal \
             tightvncserver \
             dbus-x11 \
             xauth \
@@ -45,7 +45,7 @@ jobs:
           echo "${{ env.VNC_PASS }}" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # Configure VNC startup script to launch GNOME Flashback
+          # Configure VNC startup script to launch LXQt Session
           cat << 'EOF' > ~/.vnc/xstartup
           #!/bin/sh
           unset SESSION_MANAGER
@@ -54,7 +54,7 @@ jobs:
           export GDK_BACKEND=x11
           export LIBGL_ALWAYS_SOFTWARE=1
           
-          dbus-launch gnome-session --session=gnome-flashback &
+          dbus-launch startlxqt &
           EOF
           chmod +x ~/.vnc/xstartup
 
@@ -71,10 +71,10 @@ jobs:
 
       - name: Start Pinggy TCP Tunnel & Display URL
         run: |
-          # Port 443 prevents firewall blocks on GitHub Runners
+          # SSH via Port 443 over Pinggy TCP
           ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:5901 tcp@free.pinggy.io > /tmp/pinggy.log 2>&1 &
           
-          # Wait for connection to establish
+          # Wait for tunnel initialization
           sleep 8
 
           GREEN='\033[0;32m'
@@ -83,10 +83,10 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}          GNOME VNC SERVER IS READY TO CONNECT       ${RESET}"
+          echo -e "${GREEN}          LXQt VNC SERVER IS READY TO CONNECT        ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          # Extract and print URL log output
+          # Print the connection logs containing your TCP URL
           cat /tmp/pinggy.log
           
           echo -e "${GREEN}====================================================${RESET}"
@@ -99,6 +99,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active GNOME VNC session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active LXQt VNC session running..."
             sleep 60
           done
