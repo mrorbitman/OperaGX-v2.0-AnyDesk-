@@ -22,13 +22,14 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install LXQt Desktop + VNC + X11 Fonts
+      - name: Update System & Install LXQt Desktop + Openbox + VNC
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
             lxqt-core \
             lxqt-session \
+            openbox \
             lxterminal \
             tightvncserver \
             xfonts-base \
@@ -38,16 +39,22 @@ jobs:
             curl \
             openssh-client
 
-      - name: Configure VNC Password & xstartup Script
+      - name: Configure VNC Password, Window Manager, and xstartup Script
         run: |
-          mkdir -p ~/.vnc
+          mkdir -p ~/.vnc ~/.config/lxqt
           touch ~/.Xauthority
           
           # Set VNC password
           echo "${{ env.VNC_PASS }}" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # Configure VNC startup script to launch LXQt Session
+          # Pre-configure LXQt to use Openbox without asking
+          cat << 'EOF' > ~/.config/lxqt/session.conf
+          [General]
+          window_manager=openbox
+          EOF
+          
+          # Configure VNC startup script
           cat << 'EOF' > ~/.vnc/xstartup
           #!/bin/sh
           unset SESSION_MANAGER
@@ -56,13 +63,16 @@ jobs:
           export GDK_BACKEND=x11
           export LIBGL_ALWAYS_SOFTWARE=1
           
+          # Start Openbox window manager in background
+          openbox &
+          
+          # Start LXQt session
           dbus-launch startlxqt &
           EOF
           chmod +x ~/.vnc/xstartup
 
       - name: Start VNC Server
         run: |
-          # Start VNC server on display :1 (port 5901)
           vncserver :1 -geometry 1920x1080 -depth 24
 
       - name: Launch Default Browser inside VNC
@@ -73,10 +83,7 @@ jobs:
 
       - name: Start Pinggy TCP Tunnel & Display URL
         run: |
-          # SSH via Port 443 over Pinggy TCP
           ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:5901 tcp@free.pinggy.io > /tmp/pinggy.log 2>&1 &
-          
-          # Wait for tunnel initialization
           sleep 8
 
           GREEN='\033[0;32m'
@@ -88,7 +95,6 @@ jobs:
           echo -e "${GREEN}          LXQt VNC SERVER IS READY TO CONNECT        ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          # Print connection details from Pinggy log
           cat /tmp/pinggy.log
           
           echo -e "${GREEN}====================================================${RESET}"
