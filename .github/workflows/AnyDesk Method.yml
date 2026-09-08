@@ -38,7 +38,7 @@ jobs:
             curl \
             openssh-client
 
-          # Download TurboVNC directly from GitHub Releases (Avoids SourceForge 404s)
+          # Download TurboVNC directly from GitHub Releases
           TURBOVNC_VER="3.1.1"
           wget "https://github.com/TurboVNC/turbovnc/releases/download/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
           sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
@@ -49,8 +49,8 @@ jobs:
           mkdir -p ~/.vnc ~/.config/xfce4/xfconf/xfce-perchannel-xml
           touch ~/.Xauthority
           
-          # Set VNC password using printf for reliable pipe execution
-          printf "${{ env.VNC_PASS }}\n${{ env.VNC_PASS }}\n\n" | /opt/TurboVNC/bin/vncpasswd -f > ~/.vnc/passwd
+          # Set VNC password using TurboVNC binary
+          /opt/TurboVNC/bin/vncpasswd -f <<< "${{ env.VNC_PASS }}" > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
           # 1. Apply Arc-Dark Theme & Papirus Dark Icons
@@ -99,7 +99,8 @@ jobs:
 
       - name: Start TurboVNC Server
         run: |
-          /opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24
+          # Added -securitytypes VNC -rfbauth for maximum mobile VNC client compatibility
+          /opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24 -securitytypes VNC -rfbauth ~/.vnc/passwd
 
       - name: Launch Default Browser inside VNC
         run: |
