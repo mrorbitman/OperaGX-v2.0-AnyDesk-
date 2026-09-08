@@ -1,4 +1,4 @@
-name: Minimal XFCE4 TurboVNC via Pinggy
+name: Minimal XFCE4 TurboVNC via Bore
 
 on:
   workflow_dispatch:
@@ -35,14 +35,19 @@ jobs:
             dbus-x11 \
             xauth \
             wget \
-            curl \
-            openssh-client
+            curl
 
           # Download TurboVNC directly from GitHub Releases
           TURBOVNC_VER="3.1.1"
           wget "https://github.com/TurboVNC/turbovnc/releases/download/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
           sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
           rm turbovnc.deb
+
+          # Download Bore TCP Tunnel binary
+          wget https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          tar -xf bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          sudo mv bore /usr/local/bin/
+          rm bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
 
       - name: Configure VNC Password, Minimal Themes, Animations & xstartup
         run: |
@@ -99,7 +104,6 @@ jobs:
 
       - name: Start TurboVNC Server
         run: |
-          # Added -securitytypes VNC -rfbauth for maximum mobile VNC client compatibility
           /opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24 -securitytypes VNC -rfbauth ~/.vnc/passwd
 
       - name: Launch Default Browser inside VNC
@@ -108,10 +112,11 @@ jobs:
           x-www-browser https://create.roblox.com/landing > /dev/null 2>&1 &
           sleep 3
 
-      - name: Start Pinggy TCP Tunnel & Display URL
+      - name: Start Bore TCP Tunnel & Display URL
         run: |
-          ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:5901 tcp@free.pinggy.io > /tmp/pinggy.log 2>&1 &
-          sleep 8
+          # Forward VNC local port 5901 to bore.pub
+          bore local 5901 --to bore.pub > /tmp/bore.log 2>&1 &
+          sleep 5
 
           GREEN='\033[0;32m'
           YELLOW='\033[1;33m'
@@ -119,10 +124,11 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}      TURBOVNC (60 FPS) SERVER IS READY              ${RESET}"
+          echo -e "${GREEN}      TURBOVNC (60 FPS) READY OVER BORE TUNNEL       ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          cat /tmp/pinggy.log
+          # Print the line showing bore.pub port assignment
+          cat /tmp/bore.log | grep -E "listening|bound|listening at" || cat /tmp/bore.log
           
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${YELLOW} VNC PASSWORD : ${RED}${{ env.VNC_PASS }}${RESET}"
