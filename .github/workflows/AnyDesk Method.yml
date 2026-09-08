@@ -1,4 +1,4 @@
-name: XFCE4 VNC via Pinggy
+name: Minimal XFCE4 TurboVNC via Pinggy
 
 on:
   workflow_dispatch:
@@ -22,57 +22,69 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install XFCE4 Desktop + Themes + VNC
+      - name: Update System & Install XFCE4 + TurboVNC Engine
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
             xfce4 \
-            xfce4-goodies \
             xfce4-terminal \
-            shimmer-themes \
+            arc-theme \
             papirus-icon-theme \
-            adwaita-icon-theme-full \
-            gtk2-engines-pixbuf \
-            tightvncserver \
-            xfonts-base \
+            fonts-firacode \
             dbus-x11 \
             xauth \
             wget \
             curl \
             openssh-client
 
-      - name: Configure VNC Password, XFCE4 Themes, and xstartup Script
+          # Download and install TurboVNC (High-FPS JPEG-accelerated VNC)
+          TURBOVNC_VER="3.1.1"
+          wget "https://sourceforge.net/projects/turbovnc/files/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
+          sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
+          rm turbovnc.deb
+
+      - name: Configure VNC Password, Minimal Themes, Animations & xstartup
         run: |
           mkdir -p ~/.vnc ~/.config/xfce4/xfconf/xfce-perchannel-xml
           touch ~/.Xauthority
           
-          # Set VNC password
-          echo "${{ env.VNC_PASS }}" | vncpasswd -f > ~/.vnc/passwd
+          # Set VNC password for TurboVNC
+          /opt/TurboVNC/bin/vncpasswd -f <<< "${{ env.VNC_PASS }}" > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # Apply Greybird Theme + Papirus Icons to XFCE Settings
+          # 1. Apply Arc-Dark Theme & Papirus Dark Icons
           cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xsettings" version="1.0">
             <property name="Net" type="empty">
-              <property name="ThemeName" type="string" value="Greybird"/>
-              <property name="IconThemeName" type="string" value="Papirus"/>
+              <property name="ThemeName" type="string" value="Arc-Dark"/>
+              <property name="IconThemeName" type="string" value="Papirus-Dark"/>
+            </property>
+            <property name="Gtk" type="empty">
+              <property name="FontName" type="string" value="Fira Code 10"/>
+              <property name="MonospaceFontName" type="string" value="Fira Code 10"/>
             </property>
           </channel>
           EOF
 
-          # Apply Greybird Theme to Window Borders
+          # 2. Configure Window Manager Theme + Enable Compositor Animations & Shadows
           cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xfwm4" version="1.0">
             <property name="general" type="empty">
-              <property name="theme" type="string" value="Greybird"/>
+              <property name="theme" type="string" value="Arc-Dark"/>
+              <property name="use_compositing" type="bool" value="true"/>
+              <property name="show_dock_shadows" type="bool" value="true"/>
+              <property name="show_frame_shadows" type="bool" value="true"/>
+              <property name="show_popup_shadows" type="bool" value="true"/>
+              <property name="snap_to_border" type="bool" value="true"/>
+              <property name="tile_on_move" type="bool" value="true"/>
             </property>
           </channel>
           EOF
 
-          # Configure VNC startup script to launch XFCE session
+          # 3. Configure TurboVNC startup script
           cat << 'EOF' > ~/.vnc/xstartup
           #!/bin/sh
           unset SESSION_MANAGER
@@ -85,9 +97,10 @@ jobs:
           EOF
           chmod +x ~/.vnc/xstartup
 
-      - name: Start VNC Server
+      - name: Start TurboVNC Server
         run: |
-          vncserver :1 -geometry 1920x1080 -depth 24
+          # Launch TurboVNC on display :1 at 60 FPS
+          /opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24
 
       - name: Launch Default Browser inside VNC
         run: |
@@ -106,7 +119,7 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}          XFCE4 VNC SERVER IS READY TO CONNECT       ${RESET}"
+          echo -e "${GREEN}      TURBOVNC (60 FPS) SERVER IS READY              ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
           cat /tmp/pinggy.log
@@ -121,6 +134,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active XFCE4 VNC session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active TurboVNC session running..."
             sleep 60
           done
