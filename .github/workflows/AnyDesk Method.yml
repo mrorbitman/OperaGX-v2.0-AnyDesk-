@@ -1,4 +1,4 @@
-name: LXQt VNC via Pinggy
+name: XFCE4 VNC via Pinggy
 
 on:
   workflow_dispatch:
@@ -22,15 +22,18 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install LXQt Desktop + Openbox + VNC
+      - name: Update System & Install XFCE4 Desktop + Themes + VNC
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            lxqt-core \
-            lxqt-session \
-            openbox \
-            lxterminal \
+            xfce4 \
+            xfce4-goodies \
+            xfce4-terminal \
+            shimmer-themes \
+            papirus-icon-theme \
+            adwaita-icon-theme-full \
+            gtk2-engines-pixbuf \
             tightvncserver \
             xfonts-base \
             dbus-x11 \
@@ -39,22 +42,37 @@ jobs:
             curl \
             openssh-client
 
-      - name: Configure VNC Password, Window Manager, and xstartup Script
+      - name: Configure VNC Password, XFCE4 Themes, and xstartup Script
         run: |
-          mkdir -p ~/.vnc ~/.config/lxqt
+          mkdir -p ~/.vnc ~/.config/xfce4/xfconf/xfce-perchannel-xml
           touch ~/.Xauthority
           
           # Set VNC password
           echo "${{ env.VNC_PASS }}" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
-          # Pre-configure LXQt to use Openbox without asking
-          cat << 'EOF' > ~/.config/lxqt/session.conf
-          [General]
-          window_manager=openbox
+          # Apply Greybird Theme + Papirus Icons to XFCE Settings
+          cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xsettings" version="1.0">
+            <property name="Net" type="empty">
+              <property name="ThemeName" type="string" value="Greybird"/>
+              <property name="IconThemeName" type="string" value="Papirus"/>
+            </property>
+          </channel>
           EOF
-          
-          # Configure VNC startup script
+
+          # Apply Greybird Theme to Window Borders
+          cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xfwm4" version="1.0">
+            <property name="general" type="empty">
+              <property name="theme" type="string" value="Greybird"/>
+            </property>
+          </channel>
+          EOF
+
+          # Configure VNC startup script to launch XFCE session
           cat << 'EOF' > ~/.vnc/xstartup
           #!/bin/sh
           unset SESSION_MANAGER
@@ -63,11 +81,7 @@ jobs:
           export GDK_BACKEND=x11
           export LIBGL_ALWAYS_SOFTWARE=1
           
-          # Start Openbox window manager in background
-          openbox &
-          
-          # Start LXQt session
-          dbus-launch startlxqt &
+          dbus-launch startxfce4 &
           EOF
           chmod +x ~/.vnc/xstartup
 
@@ -92,7 +106,7 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}          LXQt VNC SERVER IS READY TO CONNECT        ${RESET}"
+          echo -e "${GREEN}          XFCE4 VNC SERVER IS READY TO CONNECT       ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
           cat /tmp/pinggy.log
@@ -107,6 +121,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active LXQt VNC session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active XFCE4 VNC session running..."
             sleep 60
           done
