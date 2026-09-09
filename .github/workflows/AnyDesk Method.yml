@@ -1,4 +1,4 @@
-name: Minimal XFCE4 TurboVNC via Bore
+name: Minimal XFCE4 noVNC via Cloudflare
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 jobs:
   vnc-desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 360  # GitHub Actions free tier max job limit per run
     env:
       VNC_PASS: Pass@4321
       RUNTIME_MINUTES: 350
@@ -22,7 +22,7 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install XFCE4 + TurboVNC Engine
+      - name: Update System & Install XFCE4 + TurboVNC + noVNC + Cloudflared
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
@@ -35,26 +35,28 @@ jobs:
             dbus-x11 \
             xauth \
             wget \
-            curl
+            curl \
+            novnc \
+            websockify \
+            python3-numpy
 
-          # Download TurboVNC directly from GitHub Releases
+          # Install TurboVNC
           TURBOVNC_VER="3.1.1"
           wget "https://github.com/TurboVNC/turbovnc/releases/download/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
           sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
           rm turbovnc.deb
 
-          # Download Bore TCP Tunnel binary
-          wget https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          tar -xf bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
-          sudo mv bore /usr/local/bin/
-          rm bore-v0.5.0-x86_64-unknown-linux-musl.tar.gz
+          # Download and install Official Cloudflare Tunnel binary
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          rm cloudflared-linux-amd64.deb
 
       - name: Configure VNC Password, Minimal Themes, Animations & xstartup
         run: |
           mkdir -p ~/.vnc ~/.config/xfce4/xfconf/xfce-perchannel-xml
           touch ~/.Xauthority
           
-          # Set VNC password using TurboVNC binary
+          # Set VNC password
           /opt/TurboVNC/bin/vncpasswd -f <<< "${{ env.VNC_PASS }}" > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
@@ -73,7 +75,7 @@ jobs:
           </channel>
           EOF
 
-          # 2. Configure Window Manager Theme + Enable Compositor Animations & Shadows
+          # 2. Configure Window Manager Theme + Enable Compositor
           cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xfwm4" version="1.0">
@@ -106,17 +108,22 @@ jobs:
         run: |
           /opt/TurboVNC/bin/vncserver :1 -geometry 1920x1080 -depth 24 -securitytypes VNC -rfbauth ~/.vnc/passwd
 
+      - name: Start websockify (noVNC Bridge on port 6080)
+        run: |
+          websockify --web /usr/share/novnc 6080 localhost:5901 > /tmp/websockify.log 2>&1 &
+          sleep 3
+
       - name: Launch Default Browser inside VNC
         run: |
           export DISPLAY=:1
           x-www-browser https://create.roblox.com/landing > /dev/null 2>&1 &
           sleep 3
 
-      - name: Start Bore TCP Tunnel & Display URL
+      - name: Start Cloudflare Tunnel & Display URL
         run: |
-          # Forward VNC local port 5901 to bore.pub
-          bore local 5901 --to bore.pub > /tmp/bore.log 2>&1 &
-          sleep 5
+          # Launch Cloudflare Quick Tunnel forwarding noVNC (6080)
+          cloudflared tunnel --url http://localhost:6080 > /tmp/cf.log 2>&1 &
+          sleep 8
 
           GREEN='\033[0;32m'
           YELLOW='\033[1;33m'
@@ -124,11 +131,11 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}      TURBOVNC (60 FPS) READY OVER BORE TUNNEL       ${RESET}"
+          echo -e "${GREEN}    UNLIMITED CLOUDFLARE NOVNC DESKTOP IS READY      ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          # Print the line showing bore.pub port assignment
-          cat /tmp/bore.log | grep -E "listening|bound|listening at" || cat /tmp/bore.log
+          # Extract and print the trycloudflare.com URL
+          grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]\+\.trycloudflare\.com' /tmp/cf.log || cat /tmp/cf.log
           
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${YELLOW} VNC PASSWORD : ${RED}${{ env.VNC_PASS }}${RESET}"
@@ -140,6 +147,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active TurboVNC session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active Cloudflare noVNC session running..."
             sleep 60
           done
