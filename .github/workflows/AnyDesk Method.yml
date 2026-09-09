@@ -1,4 +1,4 @@
-name: Minimal XFCE4 noVNC via Cloudflare
+name: Minimal XFCE4 noVNC via LocalTunnel
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 jobs:
   vnc-desktop:
     runs-on: ubuntu-latest
-    timeout-minutes: 360  # GitHub Actions free tier max job limit per run
+    timeout-minutes: 360
     env:
       VNC_PASS: Pass@4321
       RUNTIME_MINUTES: 350
@@ -22,7 +22,7 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install XFCE4 + TurboVNC + noVNC + Cloudflared
+      - name: Update System & Install XFCE4 + TurboVNC + noVNC + LocalTunnel
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
@@ -40,16 +40,14 @@ jobs:
             websockify \
             python3-numpy
 
-          # Install TurboVNC
+          # Install TurboVNC directly from GitHub Releases
           TURBOVNC_VER="3.1.1"
           wget "https://github.com/TurboVNC/turbovnc/releases/download/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
           sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
           rm turbovnc.deb
 
-          # Download and install Official Cloudflare Tunnel binary
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i cloudflared-linux-amd64.deb
-          rm cloudflared-linux-amd64.deb
+          # Install localtunnel globally via npm
+          sudo npm install -g localtunnel
 
       - name: Configure VNC Password, Minimal Themes, Animations & xstartup
         run: |
@@ -119,11 +117,12 @@ jobs:
           x-www-browser https://create.roblox.com/landing > /dev/null 2>&1 &
           sleep 3
 
-      - name: Start Cloudflare Tunnel & Display URL
+      - name: Start LocalTunnel & Display URL
         run: |
-          # Launch Cloudflare Quick Tunnel forwarding noVNC (6080)
-          cloudflared tunnel --url http://localhost:6080 > /tmp/cf.log 2>&1 &
-          sleep 8
+          # Generate a random unique subdomain or set a fixed custom string
+          SUBDOMAIN="cloud-vnc-$(date +%s)"
+          lt --port 6080 --subdomain "$SUBDOMAIN" > /tmp/lt.log 2>&1 &
+          sleep 5
 
           GREEN='\033[0;32m'
           YELLOW='\033[1;33m'
@@ -131,11 +130,10 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}    UNLIMITED CLOUDFLARE NOVNC DESKTOP IS READY      ${RESET}"
+          echo -e "${GREEN}    UNLIMITED LOCALTUNNEL NOVNC DESKTOP IS READY    ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          # Extract and print the trycloudflare.com URL
-          grep -o 'https://[-a-zA-Z0-9@:%._\+~#=]\+\.trycloudflare\.com' /tmp/cf.log || cat /tmp/cf.log
+          cat /tmp/lt.log
           
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${YELLOW} VNC PASSWORD : ${RED}${{ env.VNC_PASS }}${RESET}"
@@ -147,6 +145,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active Cloudflare noVNC session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active LocalTunnel noVNC session running..."
             sleep 60
           done
