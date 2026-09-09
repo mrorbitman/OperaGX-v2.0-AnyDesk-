@@ -1,4 +1,4 @@
-name: TurboVNC Desktop for AVNC App
+name: TightVNC Desktop for AVNC App
 
 on:
   workflow_dispatch:
@@ -22,69 +22,52 @@ jobs:
           sudo mkswap /swapfile2
           sudo swapon /swapfile2
 
-      - name: Update System & Install XFCE4 + TurboVNC + SSH
+      - name: Update System & Install XFCE4 + TightVNC + Bore
         run: |
           export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
             xfce4 \
             xfce4-terminal \
-            arc-theme \
-            papirus-icon-theme \
-            fonts-firacode \
+            tightvncserver \
             dbus-x11 \
             xauth \
             wget \
-            curl \
-            openssh-client
+            curl
 
-          # Install TurboVNC directly
-          TURBOVNC_VER="3.1.1"
-          wget "https://github.com/TurboVNC/turbovnc/releases/download/${TURBOVNC_VER}/turbovnc_${TURBOVNC_VER}_amd64.deb" -O turbovnc.deb
-          sudo dpkg -i turbovnc.deb || sudo apt-get install -f -y
-          rm turbovnc.deb
+          # Download Bore for raw TCP tunneling
+          wget https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz
+          tar -xf bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz
+          sudo mv bore /usr/local/bin/
+          rm bore-v0.5.1-x86_64-unknown-linux-musl.tar.gz
 
-      - name: Configure VNC Password & Themes
+      - name: Configure TightVNC Password & xstartup
         run: |
-          mkdir -p ~/.vnc ~/.config/xfce4/xfconf/xfce-perchannel-xml
-          touch ~/.Xauthority
+          mkdir -p ~/.vnc
           
           # Set VNC password
-          /opt/TurboVNC/bin/vncpasswd -f <<< "${{ env.VNC_PASS }}" > ~/.vnc/passwd
+          echo "${{ env.VNC_PASS }}" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
-          
-          # Themes
-          cat << 'EOF' > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xsettings" version="1.0">
-            <property name="Net" type="empty">
-              <property name="ThemeName" type="string" value="Arc-Dark"/>
-              <property name="IconThemeName" type="string" value="Papirus-Dark"/>
-            </property>
-          </channel>
-          EOF
 
+          # TightVNC XFCE Startup Script
           cat << 'EOF' > ~/.vnc/xstartup
           #!/bin/sh
+          xrdb $HOME/.Xresources
           unset SESSION_MANAGER
           unset DBUS_SESSION_BUS_ADDRESS
-          export XDG_SESSION_TYPE=x11
-          export GDK_BACKEND=x11
-          export LIBGL_ALWAYS_SOFTWARE=1
-          
-          dbus-launch startxfce4 &
+          startxfce4 &
           EOF
           chmod +x ~/.vnc/xstartup
 
-      - name: Start TurboVNC Server on display :1 (TCP Port 5901)
+      - name: Start TightVNC Server on display :1 (Port 5901)
         run: |
-          /opt/TurboVNC/bin/vncserver :1 -geometry 1280x720 -depth 24 -securitytypes VNC -rfbauth ~/.vnc/passwd
+          vncserver :1 -geometry 1280x720 -depth 24
 
-      - name: Start Pinggy TCP Tunnel & Display AVNC Details
+      - name: Start Bore TCP Tunnel & Display AVNC Details
         run: |
-          # Forward raw TCP Port 5901 using Pinggy SSH
-          ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -R 0:localhost:5901 tcp@a.pinggy.io > /tmp/pinggy.log 2>&1 &
-          sleep 6
+          # Tunnel raw TCP Port 5901
+          bore local 5901 --to bore.pub > /tmp/bore.log 2>&1 &
+          sleep 5
 
           GREEN='\033[0;32m'
           YELLOW='\033[1;33m'
@@ -92,10 +75,10 @@ jobs:
           RESET='\033[0m'
 
           echo -e "${GREEN}====================================================${RESET}"
-          echo -e "${GREEN}        AVNC / VNC APP CONNECTION DETAILS           ${RESET}"
+          echo -e "${GREEN}        AVNC / TIGHTVNC CONNECTION DETAILS          ${RESET}"
           echo -e "${GREEN}====================================================${RESET}"
           
-          cat /tmp/pinggy.log
+          cat /tmp/bore.log
           
           echo -e "${GREEN}====================================================${RESET}"
           echo -e "${YELLOW} VNC PASSWORD : ${RED}${{ env.VNC_PASS }}${RESET}"
@@ -107,6 +90,6 @@ jobs:
           END_TIME=$(($(date +%s) + MINS * 60))
           
           while [ $(date +%s) -lt $END_TIME ]; do
-            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active AVNC TCP session running..."
+            echo "Cloud PC Heartbeat $(date +'%H:%M:%S') | Active TightVNC session running..."
             sleep 60
           done
