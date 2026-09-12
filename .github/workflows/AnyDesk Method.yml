@@ -21,10 +21,9 @@ jobs:
     steps:
       - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
         run: |
-          Write-Host "Purging pre-installed desktop icons and non-essential software..."
           $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
           \(userDesktop = "\)env:USERPROFILE\Desktop"
-          
+
           $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
           foreach (\(target in\)targets) {
               if (Test-Path "\(publicDesktop\$target") { Remove-Item "\)publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
