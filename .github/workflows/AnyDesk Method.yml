@@ -14,240 +14,144 @@ jobs:
   rdp:
     runs-on: windows-2022
     timeout-minutes: 360
+
     env:
-      ANYDESK_PASS: Pass@4321
+      ANYDESK_PASS: ${{ secrets.ANYDESK_PASS }}
       RUNTIME_MINUTES: 350
 
     steps:
+
+      # ------------------------------------------------------------
+      # Clean unnecessary desktop shortcuts
+      # ------------------------------------------------------------
       - name: Wipe Unnecessary Pre-Installed GitHub Apps & Shortcuts
         run: |
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          \(userDesktop = "\)env:USERPROFILE\Desktop"
+          Write-Host "Purging unnecessary desktop shortcuts..."
 
-          $targets = @("Unity Hub.lnk", "R 4.6.0.lnk", "Firefox.lnk", "Google Chrome.lnk", "Claim Rewards Here.lnk")
-          foreach (\(target in\)targets) {
-              if (Test-Path "\(publicDesktop\$target") { Remove-Item "\)publicDesktop\$target" -Force -ErrorAction SilentlyContinue }
-              if (Test-Path "\(userDesktop\$target") { Remove-Item "\)userDesktop\$target" -Force -ErrorAction SilentlyContinue }
+          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+          $userDesktop = Join-Path $env:USERPROFILE "Desktop"
+
+          $targets = @(
+              "Unity Hub.lnk",
+              "R 4.6.0.lnk",
+              "Firefox.lnk",
+              "Google Chrome.lnk",
+              "Claim Rewards Here.lnk"
+          )
+
+          foreach ($target in $targets) {
+              $publicPath = Join-Path $publicDesktop $target
+              $userPath = Join-Path $userDesktop $target
+
+              if (Test-Path $publicPath) {
+                  Remove-Item $publicPath -Force -ErrorAction SilentlyContinue
+                  Write-Host "Removed: $publicPath"
+              }
+
+              if (Test-Path $userPath) {
+                  Remove-Item $userPath -Force -ErrorAction SilentlyContinue
+                  Write-Host "Removed: $userPath"
+              }
           }
 
-      - name: Install & Route Traffic to Asia via Cloudflare WARP
-        run: |
-          Write-Host "Downloading Cloudflare WARP Client..."
-          $warpUrl = "https://1111-releases.cloudflareclient.com/win/latest"
-          \(warpMsi = "\)env:TEMP\Cloudflare_WARP.msi"
-          Invoke-WebRequest -Uri \(warpUrl -OutFile\)warpMsi -UserAgent "Mozilla/5.0"
 
-          Write-Host "Installing Cloudflare WARP silently..."
-          Start-Process msiexec.exe -ArgumentList "/i `"$warpMsi`" /qn /norestart" -Wait
-          Remove-Item $warpMsi -ErrorAction SilentlyContinue
+      # ------------------------------------------------------------
+      # Cloudflare WARP
+      # ------------------------------------------------------------
+      - name: Install Cloudflare WARP
+        run: |
+          Write-Host "Downloading Cloudflare WARP..."
+
+          $warpUrl = "https://1111-releases.cloudflareclient.com/win/latest"
+          $warpMsi = Join-Path $env:TEMP "Cloudflare_WARP.msi"
+
+          Invoke-WebRequest `
+              -Uri $warpUrl `
+              -OutFile $warpMsi `
+              -UserAgent "Mozilla/5.0"
+
+          Write-Host "Installing Cloudflare WARP..."
+
+          $process = Start-Process `
+              -FilePath "msiexec.exe" `
+              -ArgumentList "/i `"$warpMsi`" /qn /norestart" `
+              -Wait `
+              -PassThru
+
+          Write-Host "MSI exit code: $($process.ExitCode)"
+
+          Remove-Item $warpMsi -Force -ErrorAction SilentlyContinue
 
           $warpCli = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
-          
-          # Poll until WARP service is ready
-          for (\(i = 1;\)i -le 10; $i++) {
-              if (Test-Path $warpCli) { break }
-              Start-Sleep -Seconds 2
-          }
 
-          if (Test-Path $warpCli) {
-              Write-Host "Registering WARP Client..."
-              & $warpCli registration new | Out-Null
-              
-              Write-Host "Setting WARP mode to DoH/Tunnel..."
-              & $warpCli mode warp | Out-Null
-              
-              Write-Host "Connecting to Cloudflare Asia Network Routing..."
-              & $warpCli connect | Out-Null
-              
-              Start-Sleep -Seconds 5
-              
-              Write-Host "Verifying Connected Public IP and Region:"
-              try {
-                  $ipInfo = Invoke-RestMethod -Uri "https://ipinfo.io/json" -TimeoutSec 10
-                  Write-Host "Current IP: \((\)ipInfo.ip)"
-                  Write-Host "Location  : \((\)ipInfo.city), \((\)ipInfo.region), \((\)ipInfo.country)"
-              } catch {
-                  Write-Host "Unable to fetch IP info, proceeding..."
-              }
-          } else {
-              Write-Host "WARP installation failed, running with default connection."
-          }
+          Write-Host "Waiting for WARP installation..."
 
-      - name: Download and Force Install AnyDesk
-        run: |
-          $url = "https://download.anydesk.com/AnyDesk.exe"
-          \(dst = "\)env:TEMP\AnyDesk.exe"
-          Invoke-WebRequest -Uri \(url -OutFile\)dst
-          
-          $installDir = "C:\Program Files (x86)\AnyDesk"
-          if (-not (Test-Path \(installDir)) { New-Item -ItemType Directory -Path\)installDir -Force | Out-Null }
-
-          Start-Process \(dst -ArgumentList "--install `"\)installDir`"", "--silent", "--start-with-win" -Wait
-          Remove-Item $dst -ErrorAction SilentlyContinue
-
-      - name: Configure Unattended Access Password & Force Enable Touch Injection
-        run: |
-          $ad = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-          if (-not (Test-Path \(ad)) {\)ad = "C:\Program Files\AnyDesk\AnyDesk.exe" }
-          
-          cmd.exe /c "echo \({{ env.ANYDESK_PASS }} | `"\)ad`" --set-password"
-          
-          # Force Windows to allow UI Automation and Touch Injection over RDP layers
-          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableUIADesktopToggle" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
-          
-          # Unblock Touch Remote/Tablet Mode restrictions in Remote Desktop Services
-          $tsPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations"
-          New-ItemProperty -Path $tsPath -Name "TouchMode" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
-          New-ItemProperty -Path $tsPath -Name "EnableTouchInjection" -PropertyType DWord -Value 1 -Force -ErrorAction SilentlyContinue
-          
-          $path = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-          Set-ItemProperty -Path $path -Name "TaskbarGlomLevel" -Value 0 -ErrorAction SilentlyContinue
-          
-          Start-Process -FilePath $ad -ArgumentList "--restart-service" -Wait
-
-      - name: Minimize Running Infrastructure Windows
-        run: |
-          Write-Host "Sending active command prompt windows to the taskbar tray..."
-          $shell = New-Object -ComObject Shell.Application
-          $shell.MinimizeAll()
-
-      - name: Optimize Resolution for Mobile Display
-        run: |
-          Write-Host "Forcing resolution calibration matrix..."
-          Set-DisplayResolution -Width 1920 -Height 1080 -Force -ErrorAction SilentlyContinue
-
-      - name: Download & Force Consumer Build of Opera GX
-        run: |
-          Write-Host "Fetching consumer-stable Opera GX Core..."
-          $url = "https://net.geo.opera.com/opera_gx/stable/windows?utm_source=inf&utm_medium=gx"
-          \(installer = "\)env:TEMP\OperaGXSetup.exe"
-          Invoke-WebRequest -Uri \(url -OutFile\)installer
-          
-          # 1. Install browser silently
-          Start-Process -FilePath $installer -ArgumentList "--silent=1", "--allusers=1", "--launchbrowser=0", "--desktopshortcut=1" -Wait
-
-          \(operaExe = "\)env:ProgramFiles\Opera GX\opera.exe"
-          if (-not (Test-Path \(operaExe)) {\)operaExe = "$env:ProgramFiles (x86)\Opera GX\opera.exe" }
-
-          # 2. Initial workspace initialization profile launch
-          Write-Host "Launching clean engine layer to initialize workspace profiles..."
-          Start-Process -FilePath $operaExe -ArgumentList "--no-first-run"
-          
-          \(profileDir = "\)env:APPDATA\Opera Software\Opera GX Stable\Default"
-          \(prefPath = "\)profileDir\Preferences"
-          \(backupPath = "\)profileDir\Preferences.backup"
-          
-          Write-Host "Polled check initialization starting for Preferences layout..."
-          for (\(i = 1;\)i -le 15; $i++) {
-              if (Test-Path $prefPath) {
-                  Write-Host "Pristine Preferences structure caught early on iteration $i!"
+          for ($i = 1; $i -le 15; $i++) {
+              if (Test-Path $warpCli) {
+                  Write-Host "WARP CLI found."
                   break
               }
+
               Start-Sleep -Seconds 2
           }
 
-          # 3. Force stop browser to release file handles entirely
-          Write-Host "Halting engine layer..."
-          Stop-Process -Name "opera" -Force -ErrorAction SilentlyContinue
+          if (-not (Test-Path $warpCli)) {
+              Write-Warning "WARP CLI was not found. Continuing without WARP."
+              exit 0
+          }
+
+          Write-Host "Registering WARP..."
+
+          try {
+              & $warpCli registration new | Out-Host
+          }
+          catch {
+              Write-Warning "WARP registration command failed: $($_.Exception.Message)"
+          }
+
+          Write-Host "Setting WARP mode..."
+
+          try {
+              & $warpCli mode warp | Out-Host
+          }
+          catch {
+              Write-Warning "Unable to set WARP mode: $($_.Exception.Message)"
+          }
+
+          Write-Host "Connecting WARP..."
+
+          try {
+              & $warpCli connect | Out-Host
+          }
+          catch {
+              Write-Warning "Unable to connect WARP: $($_.Exception.Message)"
+          }
+
           Start-Sleep -Seconds 8
 
-          # 4. Target profile configurations
-          if (Test-Path $prefPath) {
-              Write-Host "Natively generated Preferences found. Merging UI settings..."
-              
-              \(configHashtable = Get-Content\)prefPath -Raw | ConvertFrom-Json -AsHashtable
-              if (\(null -eq\)configHashtable) { $configHashtable = @{} }
+          Write-Host "Checking public IP..."
 
-              if (-not \(configHashtable.ContainsKey('ui')) {\)configHashtable['ui'] = @{} }
-              if (-not \(configHashtable['ui'].ContainsKey('browser')) {\)configHashtable['ui']['browser'] = @{} }
-              if (-not \(configHashtable['ui'].ContainsKey('sidebar')) {\)configHashtable['ui']['browser']['sidebar'] = @{} }
-              
-              $configHashtable['ui']['browser']['sidebar']['item_prefs'] = @{
-                  "visibility" = @{ "GxRewards" = $true }
-              }
-              
-              $configHashtable['ui']['browser']['sidebar']['GxRewards'] = @{
-                  "last_action_time" = "13426206569601273"
-                  "last_used_ts" = "13426206569603970"
-                  "notification_type" = "1"
-              }
+          try {
+              $ipInfo = Invoke-RestMethod `
+                  -Uri "https://ipinfo.io/json" `
+                  -TimeoutSec 15
 
-              \(configHashtable['ui']['visibility'] = @{ "GxRewards" =\)true }
-
-              \(finalJson =\)configHashtable | ConvertTo-Json -Depth 100 -Compress
-
-              Remove-Item $prefPath -Force -ErrorAction SilentlyContinue
-              Remove-Item $backupPath -Force -ErrorAction SilentlyContinue
-
-              Set-Content -Path \(prefPath -Value\)finalJson -Force
-              Set-Content -Path \(backupPath -Value\)finalJson -Force
+              Write-Host "Public IP : $($ipInfo.ip)"
+              Write-Host "City      : $($ipInfo.city)"
+              Write-Host "Region    : $($ipInfo.region)"
+              Write-Host "Country   : $($ipInfo.country)"
+          }
+          catch {
+              Write-Warning "Unable to retrieve IP information."
           }
 
-          # Finalizing desktop shortcut maps
-          $publicDesktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-          \(userDesktop = "\)env:USERPROFILE\Desktop"
-          if (Test-Path "$userDesktop\Opera GX.lnk") {
-              Move-Item -Path "\(userDesktop\Opera GX.lnk" -Destination\)publicDesktop -Force -ErrorAction SilentlyContinue
-          }
 
-          # 5. Purging explicit system identifiers
-          Write-Host "Purging execution environment variables..."
-          $targetVars = @("GITHUB_ACTIONS", "GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_ACTOR", "RUNNER_NAME", "RUNNER_TRACKER")
-          foreach (\(var in\)targetVars) {
-              [Environment]::SetEnvironmentVariable(\(var,\)null, "Process")
-          }
-
-          $targetUrl = "https://create.roblox.com/landing"
-          \(stealthArgs = "`"\)targetUrl`" --no-first-run --disable-blink-features=AutomationControlled --disable-infobars --password-store=basic"
-
-          Write-Host "Configuring explicit launcher shortcut..."
-          $WshShell = New-Object -ComObject WScript.Shell
-          \(Shortcut =\)WshShell.CreateShortcut("$publicDesktop\Opera GX Browser.lnk")
-          \(Shortcut.TargetPath =\)operaExe
-          \(Shortcut.Arguments =\)stealthArgs
-          $Shortcut.Save()
-          Start-Sleep -Seconds 5
-
-          Write-Host "Opening pristine workspace instance..."
-          Start-Process -FilePath \(operaExe -ArgumentList\)stealthArgs
-          Write-Host "Sequence finished. Workspace deployed smoothly."
-          Start-Sleep -Seconds 10
-
-      - name: Fetch and Display AnyDesk Connection Address
+      # ------------------------------------------------------------
+      # AnyDesk installation
+      # ------------------------------------------------------------
+      - name: Download and Install AnyDesk
         run: |
-          $confPath = "C:\ProgramData\AnyDesk\system.conf"
-          $cleanId = ""
-          
-          for (\(i = 1;\)i -le 10; $i++) {
-              if (Test-Path $confPath) {
-                  \(content = Get-Content\)confPath -Raw
-                  if ($content -match 'ad\.anynet\.id=(\d+)') {
-                      \(cleanId =\)Matches[1]
-                      break
-                  }
-              }
-              Start-Sleep -Seconds 4
-          }
-          
-          $ESC = [char]27
-          \(Green = "\)ESC[32m"
-          \(Yellow = "\)ESC[33m"
-          \(Red = "\)ESC[31m"
-          \(Reset = "\)ESC[0m"
-          
-          Write-Host "\({Green}====================================================\){Reset}"
-          Write-Host "\({Green}        ANYDESK CLOUD MACHINE IS READY TO CONNECT\){Reset}"
-          Write-Host "\({Green}====================================================\){Reset}"
-          Write-Host "\({Yellow} CONNECTION ID :\){Red}\({cleanId}\){Reset}"
-          Write-Host "\({Yellow} PASSWORD      :\){Red}\({{ env.ANYDESK_PASS }}\){Reset}"
-          Write-Host "\({Green}====================================================\){Reset}"
+          Write-Host "Downloading AnyDesk..."
 
-      - name: Keep alive
-        run: |
-          \(mins = [int]"\){{ env.RUNTIME_MINUTES }}"
-          \(end = (Get-Date).AddMinutes(\)mins)
-          
-          while ((Get-Date) -lt $end) {
-              Write-Host ("Cloud PC Heartbeat " + (Get-Date).ToString("HH:mm:ss") + " | Active until " + $end.ToString("HH:mm:ss"))
-              Start-Sleep -Seconds 60
-          }
+          $url = "https://download.anydesk.com/AnyDesk.exe"
+          $dst = Join-Path $env
